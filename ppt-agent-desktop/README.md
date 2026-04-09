@@ -5,12 +5,12 @@ Electron desktop client for the workspace.
 ## Runtime
 
 - Node `24`
-- Package manager: `npm`
-- Electron entry: `src/main.js`
+- Package manager: `pnpm`
+- Electron entry: `src/main/index.js`
 
 ## Commands
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```

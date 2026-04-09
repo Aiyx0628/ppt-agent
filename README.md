@@ -21,8 +21,8 @@ uv run ppt-agent
 
 ```bash
 cd ppt-agent-desktop
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ## Repository conventions

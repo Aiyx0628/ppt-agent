@@ -1,1 +1,1 @@
-"""ppt-agent backend package."""
+"""DeckFlow backend package."""
