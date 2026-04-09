@@ -292,6 +292,25 @@ class ProjectService:
         stored = self.repository.load_artifact(project_id, "svg_slide")
         return SvgSlideArtifact.model_validate(stored)
 
+    def regenerate_svg_page(self, project_id: str, slide_id: str) -> SvgSlidePage:
+        project = self.get_project(project_id)
+        slide_plan = self.get_slide_plan(project_id)
+        plan_page = next((p for p in slide_plan.pages if p.slide_id == slide_id), None)
+        if plan_page is None:
+            raise ProjectNotFoundError(f"Slide {slide_id} not found in slide_plan.")
+
+        new_svg_page = self._regenerate_single_svg_page(project, plan_page)
+
+        current_svg = self.get_svg(project_id)
+        updated_pages = [
+            new_svg_page if p.slide_id == slide_id else p for p in current_svg.pages
+        ]
+        updated_artifact = current_svg.model_copy(update={"pages": updated_pages})
+        self.repository.save_artifact(
+            project_id, "svg_slide", updated_artifact.model_dump(mode="json")
+        )
+        return new_svg_page
+
     def _get_or_generate_brief(self, project_id: str) -> RequirementBrief:
         try:
             stored = self.repository.load_artifact(project_id, "brief")
@@ -335,6 +354,64 @@ class ProjectService:
             return self._generate_slide_plan_with_model(project, brief, outline)
         except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
             return self._generate_slide_plan_fallback(project, brief, outline)
+
+    def _regenerate_single_svg_page(
+        self,
+        project: ProjectResponse,
+        plan_page: SlidePlanPage,
+    ) -> SvgSlidePage:
+        try:
+            return self._regenerate_single_svg_page_with_model(project, plan_page)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return SvgSlidePage(
+                slide_id=plan_page.slide_id,
+                order_no=plan_page.order_no,
+                title=plan_page.title,
+                svg=self._render_svg_page(project, plan_page),
+            )
+
+    def _regenerate_single_svg_page_with_model(
+        self,
+        project: ProjectResponse,
+        plan_page: SlidePlanPage,
+    ) -> SvgSlidePage:
+        prompt = f"""请根据以下单页策划生成整页 SVG。
+
+项目标题：{project.title}
+受众：{project.config.audience}
+场景：{project.config.scenario}
+风格：{project.config.style_pref}
+
+页面策划：
+- 第{plan_page.order_no}页 | {plan_page.title} | {plan_page.core_message} | 布局={plan_page.suggested_layout}
+- 块数：{len(plan_page.blocks)}
+
+输出 JSON，格式如下：
+{{
+  "title": "string",
+  "svg": "<svg ...>...</svg>"
+}}
+
+要求：
+1. svg 必须是完整合法的 SVG 字符串。
+2. 画布统一使用 viewBox="0 0 1280 720"。
+3. 风格偏向简洁、结构化、适合企业汇报。""".strip()
+
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=prompt,
+                system_instruction="你是 SVG 幻灯片设计助手。请只输出 JSON。不要输出 markdown，不要解释。",
+                max_output_tokens=2048,
+                temperature=0.4,
+            )
+        )
+        data = self._load_json_object(response.text)
+        return SvgSlidePage(
+            slide_id=plan_page.slide_id,
+            order_no=plan_page.order_no,
+            title=data.get("title", plan_page.title),
+            svg=data["svg"],
+        )
 
     def _generate_svg_with_fallback(
         self,

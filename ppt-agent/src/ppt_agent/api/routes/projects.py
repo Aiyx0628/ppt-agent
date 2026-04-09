@@ -11,7 +11,7 @@ from ppt_agent.schemas.project import (
 from ppt_agent.schemas.research import ResearchPack
 from ppt_agent.schemas.search import SearchArtifact
 from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanPage, SlidePlanPageUpdateRequest
-from ppt_agent.schemas.svg import SvgSlideArtifact
+from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
 from ppt_agent.services.project_service import ProjectNotFoundError, get_project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -205,6 +205,18 @@ def get_svg(project_id: str) -> SvgSlideArtifact:
     service = get_project_service()
     try:
         return service.get_svg(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{project_id}/svg/pages/{slide_id}/generate",
+    response_model=SvgSlidePage,
+)
+def regenerate_svg_page(project_id: str, slide_id: str) -> SvgSlidePage:
+    service = get_project_service()
+    try:
+        return service.regenerate_svg_page(project_id, slide_id)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
