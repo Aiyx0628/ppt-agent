@@ -11,6 +11,9 @@ from xml.etree import ElementTree
 
 from pydantic import ValidationError
 
+import cairosvg
+from pypdf import PdfReader, PdfWriter
+
 from ppt_agent.config import get_settings
 from ppt_agent.schemas.brief import BriefConfirmResponse, BriefQuestion, BriefUpdateRequest, RequirementBrief
 from ppt_agent.schemas.model import GenerateTextRequest
@@ -321,9 +324,6 @@ class ProjectService:
         return buffer.getvalue()
 
     def export_pdf(self, project_id: str) -> bytes:
-        import cairosvg
-        from pypdf import PdfWriter, PdfReader
-
         svg_artifact = self.get_svg(project_id)
         writer = PdfWriter()
         for page in sorted(svg_artifact.pages, key=lambda p: p.order_no):

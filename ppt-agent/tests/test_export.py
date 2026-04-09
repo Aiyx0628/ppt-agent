@@ -3,7 +3,6 @@ import io
 import pytest
 from ppt_agent.schemas.project import ProjectCreateRequest, ProjectConfigPayload
 from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
-from ppt_agent.services.storage_repository import StorageRepository
 from ppt_agent.services.project_service import ProjectService
 
 MINIMAL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#fff"/><text x="100" y="100">Test</text></svg>'
