@@ -4,7 +4,12 @@
 
 这是一份面向大模型与工程团队的统一说明文档，用于指导一个 **AI PPT 生产系统** 的产品设计与工程实现。
 
-本项目的目标不是做一个“一键套模板出 PPT”的工具，而是做一个 **把 PPT 生产过程拆解成多个可编辑、可回退、可重跑阶段的桌面产品**。
+本文档现已按以下外部实践路线进行对齐：
+
+- Linux.do，Sandun，2026-03-19，《应该是目前最强的PPT Agent，附上完整思路分享》
+- 核心方法：`先调研和追问 -> 再出大纲 -> 再做策划稿 -> 最后让强模型直接生成整页 SVG`
+
+本项目的目标不是做一个“一键套模板出 PPT”的工具，而是做一个 **模拟专业 PPT 顾问与设计师工作流的桌面产品**。
 
 本项目技术前提如下：
 
@@ -34,19 +39,20 @@ DeckFlow 是一个桌面端 AI PPT 生产系统。
 3. 自动调研相关资料
 4. 生成逻辑化大纲
 5. 对每一页做内容策划
-6. 对每一页做视觉设计
+6. 让模型基于策划稿直接生成整页 SVG 设计稿
 7. 输出可预览、可修改、可导出的 PPT 初稿
 
 ## 1.3 核心价值
 
-本产品不追求“最快出图”，而追求：
+本产品不追求“最快套模板”，而追求：
 
-- 内容正确
+- 需求问得准
+- 内容事实更扎实
 - 结构清晰
-- 页面稳定
-- 支持局部修改
-- 支持单页重跑
-- 支持版本管理
+- 页面足够专业
+- 生成结果可编辑
+- 支持局部修改与单页重跑
+- 前端交互必须丝滑稳定
 
 ## 1.4 目标用户
 
@@ -66,8 +72,8 @@ MVP 只做以下能力：
 3. 自动调研资料（可选）
 4. 自动生成 PPT 大纲
 5. 自动生成逐页策划稿
-6. 自动生成逐页设计稿
-7. 自动渲染页面预览
+6. 自动生成逐页 SVG 设计稿
+7. 自动生成页面预览
 8. 自动导出 PDF / PPTX / SVG
 9. 支持单页重跑与简单编辑
 
@@ -88,14 +94,14 @@ MVP 只做以下能力：
 ```text
 新建项目
 → 输入主题/用途/受众/页数/风格
+→ AI 调研资料
 → AI 提问补全需求
 → 用户确认 Brief
-→ AI 调研资料
 → AI 生成大纲
-→ 用户修改/拖拽大纲
+→ 用户以数字便利贴方式修改/拖拽大纲
 → AI 逐页生成策划稿
-→ AI 逐页生成设计稿
-→ 页面渲染与质量检查
+→ AI 逐页生成 SVG 设计稿
+→ 页面预览与导出
 → 用户局部修改/单页重跑
 → 导出 PDF / PPTX / SVG
 ```
@@ -122,9 +128,18 @@ MVP 只做以下能力：
 - `project`
 - `project_config`
 
-## 步骤 2：需求澄清
+## 步骤 2：资料调研与需求澄清
 
-Requirement Agent 根据用户输入生成关键澄清问题，例如：
+严格按照帖子中的方法，AI 不应在用户只给一个主题后立刻吐出大纲，而是应该先结合搜索结果做“带上下文的追问”。
+
+Research + Requirement Agent 的职责是：
+
+- 先基于主题做联网调研
+- 再结合调研结果提出关键问题
+- 帮用户明确真正的汇报目标
+- 避免做出“内容空、目标偏、逻辑虚”的 PPT
+
+关键澄清问题例如：
 
 - 这份 PPT 的目标是什么？
 - 希望受众在看完之后采取什么行动？
@@ -135,23 +150,9 @@ Requirement Agent 根据用户输入生成关键澄清问题，例如：
 用户回答后，系统生成：
 
 - `requirement_brief`
-
-## 步骤 3：资料调研
-
-如果启用调研：
-
-- Research Agent 基于主题进行检索
-- 整理资料摘要
-- 抽取关键事实
-- 标记来源与可信度
-- 为后续大纲生成提供输入
-
-系统产物：
-
 - `research_pack`
-- `source_refs`
 
-## 步骤 4：生成大纲
+## 步骤 3：生成大纲
 
 Outline Agent 基于 `requirement_brief + research_pack` 生成：
 
@@ -161,6 +162,8 @@ Outline Agent 基于 `requirement_brief + research_pack` 生成：
 - 每页标题
 - 每页核心信息
 - 每页页面类型建议
+
+这里的大纲不是普通列表，而应尽量贴近帖子中的“数字便利贴”组织方式，每一页都应是清晰独立的内容单元。
 
 用户可以：
 
@@ -173,6 +176,18 @@ Outline Agent 基于 `requirement_brief + research_pack` 生成：
 系统产物：
 
 - `outline`
+
+## 步骤 4：大纲编辑（数字便利贴）
+
+前端应把大纲编辑设计成“数字便利贴墙”，让用户像整理便利贴一样整理整套 PPT。
+
+核心交互：
+
+- 每页是一张便利贴
+- 支持拖拽排序
+- 支持章节分组
+- 支持快速删除 / 复制 / 改标题
+- 支持直接看到每页的核心结论
 
 ## 步骤 5：逐页策划
 
@@ -189,48 +204,49 @@ Planning Agent 为每一页生成策划稿，不直接画页面，而是先回�
 
 - `slide_plan[]`
 
-## 步骤 6：逐页设计
+## 步骤 6：逐页生成 SVG 设计稿
 
-Design Agent 基于策划稿与主题系统生成：
+严格按照帖子路线，首版设计阶段不再要求模型先输出 `design_spec` 再由代码渲染，而是：
 
-- 字体层级
-- 色彩映射
-- 布局结构
-- 卡片区块
-- 图表/图标占位
-- 背景样式
-- 设计规格
+- 先由 Planning Agent 生成策划稿
+- 再由 Design Agent 基于策划稿直接输出整页 SVG
+
+SVG 生成要求：
+
+- 固定画布：`viewBox="0 0 1280 720"`
+- 设计语言优先采用卡片式布局 / Bento Grid
+- 通过卡片尺寸建立视觉层级
+- 卡片之间保持稳定留白
+- 内容密度由策划稿驱动，而不是硬套模板
 
 系统产物：
 
-- `design_spec[]`
+- `svg_slide[]`
 
-## 步骤 7：页面渲染
+## 步骤 7：页面预览与导出准备
 
-Renderer 将 `design_spec` 转换为：
+系统基于 SVG 生成：
 
-- `svg`
-- `png` 缩略图
-- 页面预览快照
+- 页面预览
+- 缩略图
+- 导出中间文件
 
-推荐策略：
+这里的重点不是代码重新布局页面，而是：
 
-- **大模型负责生成 Design Spec JSON**
-- **Renderer 代码负责将 JSON 转换为 SVG**
+- 校验 SVG 基本合法性
+- 生成预览资源
+- 为 PDF / PPTX / SVG 导出做准备
 
-不要让模型直接自由输出最终 SVG，避免结构失控。
-
-## 步骤 8：质量检查与自动修复
+## 步骤 8：质量检查与局部修复
 
 Review Agent 检查：
 
 - 文本溢出
-- 区块重叠
+- 主要元素遮挡
 - 字号过小
-- 留白不足
-- 页面层级不清晰
+- 卡片层级不清晰
 - 多页风格不一致
-- 章节逻辑断裂
+- SVG 基础结构是否异常
 
 输出：
 
@@ -246,7 +262,7 @@ Review Agent 检查：
 - 切换布局模式
 - 单页重跑
 - 只重跑策划层
-- 只重跑设计层
+- 只重跑 SVG 设计层
 
 ## 步骤 10：导出
 
@@ -298,10 +314,11 @@ Python Backend
 │  ├─ Research Agent
 │  ├─ Outline Agent
 │  ├─ Planning Agent
-│  ├─ Design Agent
+│  ├─ SVG Design Agent
 │  ├─ Review Agent
 │  └─ Export Agent
-├─ Renderer Service
+├─ SVG Service
+├─ Preview Service
 ├─ File Service
 ├─ Model Router
 └─ PostgreSQL
@@ -310,11 +327,12 @@ Python Backend
 ## 4.2 架构原则
 
 1. Electron 只负责桌面壳、本地桥接、文件交互、页面展示。
-2. Python 后端负责业务逻辑、任务编排、模型调用、渲染、导出。
-3. 所有生成过程都必须有结构化中间产物。
+2. Python 后端负责业务逻辑、任务编排、模型调用、SVG 生成、预览、导出。
+3. 所有生成过程都必须有中间产物，其中设计阶段产物以 SVG 为核心。
 4. 每个阶段都必须可重跑、可回退、可版本化。
 5. 文件统一存储在本地文件系统。
 6. 元数据、索引、状态统一存入 PostgreSQL。
+7. 首版路线优先采用“模型直接生成 SVG”，而不是先做复杂代码布局引擎。
 
 ---
 
@@ -351,6 +369,7 @@ Python Backend
 - 可视化编辑器
 - 预览与任务状态展示
 - 调用后端 API
+- 保证拖拽、切页、缩放、状态更新的交互流畅度
 
 ## 5.2 建议页面
 
@@ -363,6 +382,13 @@ Python Backend
 5. 策划页
 6. 设计预览页
 7. 导出页
+
+前端非功能要求：
+
+- 大纲数字便利贴拖拽必须顺滑
+- SVG 预览切页和缩放不能闪烁或明显卡顿
+- 长任务状态更新不能造成全页抖动
+- 页面切换和局部刷新优先保证即时反馈
 
 ---
 
@@ -379,6 +405,7 @@ Python Backend
 - 文件处理：pathlib / aiofiles
 - 日志：structlog 或 loguru
 - 监控：Prometheus / OpenTelemetry / Sentry
+- 搜索：可插拔搜索服务，生产可接国内搜索接口，实验可接 Grok 类能力
 
 ## 6.2 工作流架构建议
 
@@ -440,20 +467,29 @@ Python Backend
 - Research Agent
 - Outline Agent
 - Planning Agent
-- Design Agent
+- SVG Design Agent
 - Review Agent
 - Export Agent
 
-## 7.5 Renderer Service
+## 7.5 SVG Service
 
 职责：
 
-- `design_spec -> svg`
+- 基于策划稿和设计提示词生成 SVG
+- 执行 SVG 基础合法性检查
 - 生成缩略图
-- 执行布局安全检查
-- 输出预览资源
+- 为 Office / PDF 导出提供输入
 
-## 7.6 File Service
+## 7.6 Preview Service
+
+职责：
+
+- 生成页面预览图
+- 生成缩略图列表
+- 管理预览缓存
+- 支持设计稿快速查看
+
+## 7.7 File Service
 
 职责：
 
@@ -505,10 +541,9 @@ storage/
           {slide_id}/
             plan/
               v1.json
-            design/
-              v1.json
-            render/
+            svg/
               v1.svg
+            preview/
               v1.png
             review/
               v1.json
@@ -784,26 +819,16 @@ storage/
 }
 ```
 
-## 10.5 design_spec
+## 10.5 svg_slide
 
-```json
-{
-  "slide_id": "s2",
-  "canvas": {"width": 1280, "height": 720},
-  "theme": {
-    "bg": "#0B1020",
-    "accent": "#5B8CFF",
-    "text_primary": "#FFFFFF"
-  },
-  "layout": {
-    "cards": [
-      {"id": "c1", "x": 40, "y": 40, "w": 1200, "h": 100, "role": "headline"},
-      {"id": "c2", "x": 40, "y": 170, "w": 570, "h": 470, "role": "left_panel"},
-      {"id": "c3", "x": 670, "y": 170, "w": 570, "h": 470, "role": "right_panel"}
-    ]
-  }
-}
-```
+保存整页 SVG 字符串或 `.svg` 文件。
+
+要求：
+
+- 固定画布为 `1280x720`
+- 首版优先使用卡片式/Bento Grid 语言
+- 字体、颜色、卡片、图标、图表都直接体现在 SVG 中
+- 结果应可直接用于预览与导出
 
 ## 10.6 review_report
 
@@ -836,8 +861,8 @@ draft
 → outline_generating
 → outline_ready
 → planning
-→ design_generating
-→ rendering
+→ svg_generating
+→ previewing
 → reviewing
 → ready_for_edit
 → exporting
@@ -850,8 +875,8 @@ draft
 ```text
 queued
 → planned
-→ designed
-→ rendered
+→ svg_generated
+→ previewed
 → reviewed
 → repaired
 → approved
@@ -895,8 +920,9 @@ queued
 ## 12.5 Slide API
 
 - `POST /api/projects/{id}/slides/{slideId}/plan/generate`
-- `POST /api/projects/{id}/slides/{slideId}/design/generate`
-- `POST /api/projects/{id}/slides/{slideId}/render`
+- `POST /api/projects/{id}/slides/{slideId}/svg/generate`
+- `GET /api/projects/{id}/slides/{slideId}/svg`
+- `GET /api/projects/{id}/slides/{slideId}/preview`
 - `POST /api/projects/{id}/slides/{slideId}/review`
 - `POST /api/projects/{id}/slides/{slideId}/retry`
 - `GET /api/projects/{id}/slides/{slideId}`
@@ -946,46 +972,45 @@ queued
 
 ---
 
-# 14. 布局引擎设计
+# 14. 布局方法设计
 
 ## 14.1 原则
 
-不要让模型完全控制几何布局。
+首版严格按帖子路线，不优先开发复杂几何布局引擎，而是优先建立一套模型容易理解、可复用的布局提示词方法。
 
-应该拆成三层：
+核心原则：
 
-1. 大模型生成语义结构
-2. 布局引擎计算坐标与尺寸
-3. 渲染器生成 SVG
+1. 使用卡片式布局 / Bento Grid 作为首要视觉语言
+2. 布局由内容需求驱动，不由固定模板强行限制
+3. 用卡片大小来表达主次层级
+4. 所有卡片之间保持稳定留白
+5. 输出目标直接是整页 SVG
 
 ## 14.2 推荐布局模式
 
-- hero_top_plus_cards
-- two_column_compare
-- three_metric_cards
-- timeline_horizontal
-- timeline_vertical
-- left_diagram_right_text
-- top_summary_bottom_grid
-- section_cover
+- 单一焦点大卡片
+- 50/50 两栏
+- 2/3 + 1/3 非对称两栏
+- 三栏并列
+- 主次结合
+- 顶部 Hero + 下方卡片网格
+- 混合网格
+- section cover
 
 ## 14.3 输入与输出
 
 输入：
 
 - slide type
-- block list
-- block priority
-- density
-- visual focus
+- slide_plan
+- 内容全文
+- 视觉风格要求
+- 卡片布局提示词
 
 输出：
 
-- x/y/w/h
-- padding
-- safe area
-- text bounds
-- chart bounds
+- 完整 SVG 页面
+- 预览缩略图
 
 ---
 
@@ -996,36 +1021,34 @@ queued
 采用以下路径：
 
 ```text
-LLM -> design_spec.json -> Renderer -> SVG -> Preview/Export
+Research + Brief -> Outline -> Slide Plan -> LLM 直接生成 SVG -> Preview/Export
 ```
 
-不要采用：
+首版不采用：
 
 ```text
-LLM -> 最终自由 SVG
+Slide Plan -> 复杂代码布局引擎 -> Renderer -> SVG
 ```
 
 原因：
 
-- 不稳定
-- 难校验
-- 难修复
-- 难回滚
+- 与帖子方法论不一致
+- 首版研发成本高
+- 先做 prompt 驱动 SVG 更容易快速打出效果
+- 便于直接验证模型生成质量
 
-## 15.2 Renderer 职责
+## 15.2 SVG 生成职责
 
-- 解析 design_spec
-- 生成 SVG
+- 基于策划稿生成 SVG
 - 生成缩略图 PNG
-- 检测越界
-- 检测重叠
+- 检测基础结构合法性
 - 生成页面预览文件
 
 ---
 
 # 16. 质量控制体系
 
-必须实现独立 Review Engine。
+Review Engine 保留，但优先级低于“先把高质量 SVG 跑出来”。
 
 ## 16.1 Schema 校验
 
@@ -1046,6 +1069,7 @@ LLM -> 最终自由 SVG
 - 是否溢出
 - 是否留白不足
 - 是否视觉主次不清晰
+- SVG 是否存在明显结构异常
 
 ## 16.4 叙事校验
 
@@ -1121,7 +1145,7 @@ LLM -> 最终自由 SVG
 
 ## 阶段 1：最小可跑通链路
 
-目标：快速打通从输入需求到导出 PDF 的全链路。
+目标：快速打通从输入主题到输出可编辑 SVG/PDF 的全链路。
 
 步骤：
 
@@ -1130,20 +1154,20 @@ LLM -> 最终自由 SVG
 3. 初始化 FastAPI
 4. 建 PostgreSQL 数据表
 5. 实现项目创建
-6. 实现 brief 生成
-7. 实现 outline 生成
-8. 实现简单 slide_plan 生成
-9. 实现固定模板 Renderer
-10. 实现 PDF 导出
+6. 实现联网调研 + 需求追问
+7. 实现数字便利贴大纲
+8. 实现 slide_plan 策划稿
+9. 实现基于卡片式/Bento Grid 的 SVG 生成
+10. 实现 PDF / SVG 导出
 
 ## 阶段 2：可编辑与可重跑
 
 1. 大纲编辑器
 2. 单页策划重跑
-3. 单页设计重跑
+3. 单页 SVG 重跑
 4. 版本记录
-5. 质量检查
-6. review report 展示
+5. SVG 质量检查
+6. 预览与编辑体验增强
 
 ## 阶段 3：工程化增强
 
@@ -1151,7 +1175,7 @@ LLM -> 最终自由 SVG
 2. 缓存与成本统计
 3. 并发任务控制
 4. 失败恢复
-5. 更丰富布局引擎
+5. 更丰富 SVG 提示词库
 6. PPTX 导出
 
 ## 阶段 4：商业化准备
@@ -1187,7 +1211,7 @@ LLM -> 最终自由 SVG
 
 - Schema Tests
 - API Contract Tests
-- Renderer Golden Tests
+- SVG Golden Tests
 - Workflow Integration Tests
 
 ## 19.3 模块分治
@@ -1235,8 +1259,9 @@ deckflow/
     domain/                  # 通用实体与枚举
     schemas/                 # pydantic / zod schema
     prompts/                 # prompt templates
-    layout_engine/           # 布局规则
-    renderer/                # design_spec -> svg
+    search/                  # research connectors
+    svg/                     # svg generation & validation
+    preview/                 # svg -> preview png
     exporter/                # svg -> pdf/pptx
     review_engine/           # 质量检查
     model_router/            # 模型路由
@@ -1315,21 +1340,20 @@ deckflow/
 - 实现逐页策划生成
 - 支持单页重跑
 
-## 任务 7：Design Spec + Renderer
+## 任务 7：SVG 设计稿生成
 
 目标：
 
-- 定义 design spec schema
-- 编写 SVG renderer
+- 基于策划稿和布局提示词生成整页 SVG
 - 生成预览缩略图
 
-## 任务 8：Review Engine
+## 任务 8：SVG 质量与兼容性
 
 目标：
 
+- 检查 SVG 基础结构问题
 - 检查溢出、重叠、字号过小
-- 输出结构化 review report
-- 支持自动修复接口
+- 提升 Office 导入兼容性
 
 ## 任务 9：导出系统
 
@@ -1351,15 +1375,15 @@ deckflow/
 
 # 22. 最终原则总结
 
-1. 不要做成一次生成最终页面的黑盒。
+1. 不要主题一输就直接吐粗糙大纲，必须先调研、再追问。
 2. 必须显式保存每个阶段的中间产物。
-3. 大模型负责语义结构，不负责最终确定性执行。
-4. 渲染必须走代码引擎，不要完全自由生成最终 SVG。
+3. 大纲和设计之间必须有策划稿。
+4. 首版设计稿严格采用“强模型直接生成整页 SVG”路线。
 5. 文件使用本地文件系统保存。
 6. PostgreSQL 负责元数据、状态、索引、版本信息。
 7. 必须支持单页重跑与局部修复。
 8. 必须支持版本追踪与回滚。
-9. 先做稳，再做炫。
+9. 布局语言首版优先采用卡片式 / Bento Grid。
 10. 先打通最短链路，再逐步增强工程能力。
 
 ---
@@ -1375,8 +1399,8 @@ deckflow/
 2. Python 使用 FastAPI 作为 API 层。
 3. 数据库存储使用 PostgreSQL。
 4. 所有文件、导出结果、中间产物统一存储到本地文件系统，不使用云对象存储。
-5. 系统必须包含 Requirement Agent、Research Agent、Outline Agent、Planning Agent、Design Agent、Review Agent。
-6. 生成流程必须分阶段：brief -> research -> outline -> slide_plan -> design_spec -> render -> review -> export。
+5. 系统必须包含 Requirement Agent、Research Agent、Outline Agent、Planning Agent、SVG Design Agent、Review Agent。
+6. 生成流程必须分阶段：research -> brief -> outline -> slide_plan -> svg -> review -> export。
 7. 必须支持 artifact 版本管理、单页重跑、局部修复。
 8. 请优先输出：
    - 项目目录结构
@@ -1384,7 +1408,7 @@ deckflow/
    - Pydantic schema
    - FastAPI 路由设计
    - Electron 前端页面结构
-   - 核心工作流代码骨架
-9. 请不要直接生成一个黑盒系统，而要保持模块清晰、可测试、可扩展。
+   - Prompt Contract
+   - SVG 生成工作流代码骨架
+9. 首版请忠实采用“research -> brief -> outline -> slide_plan -> svg -> review -> export”链路，不要回退到 design_spec -> renderer 路线。
 ```
-
