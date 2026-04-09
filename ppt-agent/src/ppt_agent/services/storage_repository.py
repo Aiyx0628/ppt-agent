@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ppt_agent.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
+from sqlalchemy import select
+
+from ppt_agent.db import get_session_factory
+from ppt_agent.db_models import ArtifactRecord, ProjectConfigRecord, ProjectRecord
+from ppt_agent.schemas.project import ProjectResponse, ProjectUpdateRequest
 
 
 class ProjectNotFoundError(Exception):
@@ -28,6 +32,7 @@ class StorageRepository:
         project_dir = self._project_dir(project.id)
         project_dir.mkdir(parents=True, exist_ok=True)
         self._write_json(project_dir / "project.json", project.model_dump(mode="json"))
+        self._sync_project_record(project)
         return project
 
     def get_project(self, project_id: str) -> ProjectResponse:
@@ -53,6 +58,7 @@ class StorageRepository:
             self._project_dir(project_id) / "project.json",
             updated.model_dump(mode="json"),
         )
+        self._sync_project_record(updated)
         return updated
 
     def delete_project(self, project_id: str) -> None:
@@ -60,6 +66,7 @@ class StorageRepository:
         if not project_dir.exists():
             raise ProjectNotFoundError(f"Project {project_id} not found.")
         shutil.rmtree(project_dir)
+        self._delete_project_record(project_id)
 
     def load_artifact(self, project_id: str, artifact_type: str) -> dict[str, Any]:
         artifact_dir = self._artifact_dir(project_id, artifact_type)
@@ -77,7 +84,9 @@ class StorageRepository:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         version = self._next_version(artifact_dir)
         stored = {**payload, "version": version}
-        self._write_json(artifact_dir / f"v{version}.json", stored)
+        target = artifact_dir / f"v{version}.json"
+        self._write_json(target, stored)
+        self._record_artifact(project_id, artifact_type, version, target)
         return stored
 
     def _project_dir(self, project_id: str) -> Path:
@@ -99,3 +108,89 @@ class StorageRepository:
     def _write_json(self, target: Path, payload: dict[str, Any]) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, ensure_ascii=True, indent=2))
+
+    def _sync_project_record(self, project: ProjectResponse) -> None:
+        session_factory = get_session_factory()
+        if session_factory is None:
+            return
+
+        with session_factory() as session:
+            record = session.get(ProjectRecord, project.id)
+            if record is None:
+                record = ProjectRecord(
+                    id=project.id,
+                    title=project.title,
+                    topic=project.topic,
+                    status=project.status,
+                    created_at=project.created_at,
+                    updated_at=project.updated_at,
+                )
+                record.config = ProjectConfigRecord(
+                    project_id=project.id,
+                    scenario=project.config.scenario,
+                    audience=project.config.audience,
+                    style_pref=project.config.style_pref,
+                    page_limit=project.config.page_limit,
+                    research_enabled=project.config.research_enabled,
+                    narration_enabled=project.config.narration_enabled,
+                )
+                session.add(record)
+            else:
+                record.title = project.title
+                record.topic = project.topic
+                record.status = project.status
+                record.created_at = project.created_at
+                record.updated_at = project.updated_at
+                if record.config is None:
+                    record.config = ProjectConfigRecord(project_id=project.id)
+                record.config.scenario = project.config.scenario
+                record.config.audience = project.config.audience
+                record.config.style_pref = project.config.style_pref
+                record.config.page_limit = project.config.page_limit
+                record.config.research_enabled = project.config.research_enabled
+                record.config.narration_enabled = project.config.narration_enabled
+            session.commit()
+
+    def _delete_project_record(self, project_id: str) -> None:
+        session_factory = get_session_factory()
+        if session_factory is None:
+            return
+
+        with session_factory() as session:
+            record = session.get(ProjectRecord, project_id)
+            if record is not None:
+                session.delete(record)
+                session.commit()
+
+    def _record_artifact(
+        self,
+        project_id: str,
+        artifact_type: str,
+        version: int,
+        storage_path: Path,
+    ) -> None:
+        session_factory = get_session_factory()
+        if session_factory is None:
+            return
+
+        with session_factory() as session:
+            record = session.execute(
+                select(ArtifactRecord).where(
+                    ArtifactRecord.project_id == project_id,
+                    ArtifactRecord.artifact_type == artifact_type,
+                    ArtifactRecord.version == version,
+                )
+            ).scalar_one_or_none()
+            if record is None:
+                session.add(
+                    ArtifactRecord(
+                        project_id=project_id,
+                        artifact_type=artifact_type,
+                        version=version,
+                        storage_path=str(storage_path),
+                        created_at=datetime.now(UTC),
+                    )
+                )
+            else:
+                record.storage_path = str(storage_path)
+            session.commit()

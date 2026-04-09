@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ppt_agent.api.routes import router
 from ppt_agent.config import get_settings
+from ppt_agent.db import create_database_schema
 from ppt_agent.logging import configure_logging, get_logger
 
 
@@ -14,6 +15,13 @@ async def lifespan(_: FastAPI):
     settings.storage_root.mkdir(parents=True, exist_ok=True)
     configure_logging(settings.app_env)
     logger = get_logger(__name__)
+    if settings.database_auto_create:
+        schema_status = create_database_schema()
+        logger.info(
+            "deckflow.api.database_schema",
+            status=schema_status.status,
+            detail=schema_status.detail,
+        )
     logger.info(
         "deckflow.api.startup",
         environment=settings.app_env,

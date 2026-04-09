@@ -7,7 +7,7 @@ from ppt_agent.config import get_settings
 from ppt_agent.schemas.brief import BriefConfirmResponse, BriefQuestion, BriefUpdateRequest, RequirementBrief
 from ppt_agent.schemas.outline import OutlineArtifact, OutlineReorderRequest, OutlineSlide
 from ppt_agent.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
-from ppt_agent.schemas.research import ResearchCitation, ResearchPack, ResearchTopic
+from ppt_agent.schemas.research import ResearchPack, ResearchTopic
 from ppt_agent.services.storage_repository import ProjectNotFoundError, StorageRepository
 
 
