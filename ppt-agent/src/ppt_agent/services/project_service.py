@@ -311,6 +311,31 @@ class ProjectService:
         )
         return new_svg_page
 
+    def export_svg_zip(self, project_id: str) -> bytes:
+        svg_artifact = self.get_svg(project_id)
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for page in sorted(svg_artifact.pages, key=lambda p: p.order_no):
+                filename = f"slide_{page.order_no:02d}.svg"
+                zf.writestr(filename, page.svg.encode("utf-8"))
+        return buffer.getvalue()
+
+    def export_pdf(self, project_id: str) -> bytes:
+        import cairosvg
+        from pypdf import PdfWriter, PdfReader
+
+        svg_artifact = self.get_svg(project_id)
+        writer = PdfWriter()
+        for page in sorted(svg_artifact.pages, key=lambda p: p.order_no):
+            single_pdf = cairosvg.svg2pdf(bytestring=page.svg.encode("utf-8"))
+            reader = PdfReader(BytesIO(single_pdf))
+            for pdf_page in reader.pages:
+                writer.add_page(pdf_page)
+
+        output = BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
     def _get_or_generate_brief(self, project_id: str) -> RequirementBrief:
         try:
             stored = self.repository.load_artifact(project_id, "brief")
