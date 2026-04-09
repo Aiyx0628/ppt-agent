@@ -375,6 +375,10 @@ class ProjectService:
         project: ProjectResponse,
         plan_page: SlidePlanPage,
     ) -> SvgSlidePage:
+        block_lines = "\n".join(
+            f"  - [{b.kind}] {b.title}：{b.content}（强调={b.emphasis}）"
+            for b in plan_page.blocks
+        )
         prompt = f"""请根据以下单页策划生成整页 SVG。
 
 项目标题：{project.title}
@@ -384,7 +388,8 @@ class ProjectService:
 
 页面策划：
 - 第{plan_page.order_no}页 | {plan_page.title} | {plan_page.core_message} | 布局={plan_page.suggested_layout}
-- 块数：{len(plan_page.blocks)}
+块内容：
+{block_lines}
 
 输出 JSON，格式如下：
 {{
