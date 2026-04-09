@@ -235,3 +235,31 @@ def update_slide_plan_page(
         return service.update_slide_plan_page(project_id, slide_id, payload)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/export/svg")
+def export_svg(project_id: str) -> Response:
+    service = get_project_service()
+    try:
+        zip_bytes = service.export_svg_zip(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={project_id}_slides.zip"},
+    )
+
+
+@router.get("/{project_id}/export/pdf")
+def export_pdf(project_id: str) -> Response:
+    service = get_project_service()
+    try:
+        pdf_bytes = service.export_pdf(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={project_id}_slides.pdf"},
+    )
