@@ -18,7 +18,7 @@ from ppt_agent.schemas.outline import OutlineArtifact, OutlineReorderRequest, Ou
 from ppt_agent.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
 from ppt_agent.schemas.research import ResearchPack, ResearchTopic
 from ppt_agent.schemas.search import SearchArtifact, SearchPage
-from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanBlock, SlidePlanPage
+from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanBlock, SlidePlanPage, SlidePlanPageUpdateRequest
 from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
 from ppt_agent.services.model_router import ModelProviderError, get_model_router
 from ppt_agent.services.storage_repository import ProjectNotFoundError, StorageRepository
@@ -224,6 +224,56 @@ class ProjectService:
     def get_slide_plan(self, project_id: str) -> SlidePlanArtifact:
         stored = self.repository.load_artifact(project_id, "slide_plan")
         return SlidePlanArtifact.model_validate(stored)
+
+    def update_slide_plan_page(
+        self,
+        project_id: str,
+        slide_id: str,
+        payload: SlidePlanPageUpdateRequest,
+    ) -> SlidePlanPage:
+        current = self.get_slide_plan(project_id)
+        page = next((p for p in current.pages if p.slide_id == slide_id), None)
+        if page is None:
+            raise ProjectNotFoundError(f"Slide {slide_id} not found in slide_plan.")
+
+        updated_blocks = page.blocks
+        if payload.blocks is not None:
+            block_map = {b.block_id: b for b in payload.blocks}
+            updated_blocks = [
+                block.model_copy(
+                    update={
+                        k: v
+                        for k, v in {
+                            "title": block_map[block.block_id].title if block.block_id in block_map else None,
+                            "content": block_map[block.block_id].content if block.block_id in block_map else None,
+                            "emphasis": block_map[block.block_id].emphasis if block.block_id in block_map else None,
+                        }.items()
+                        if v is not None
+                    }
+                )
+                for block in page.blocks
+            ]
+
+        updated_page = page.model_copy(
+            update={
+                k: v
+                for k, v in {
+                    "title": payload.title,
+                    "core_message": payload.core_message,
+                    "visual_focus": payload.visual_focus,
+                    "blocks": updated_blocks,
+                }.items()
+                if v is not None
+            }
+        )
+        updated_pages = [
+            updated_page if p.slide_id == slide_id else p for p in current.pages
+        ]
+        updated_artifact = current.model_copy(update={"pages": updated_pages})
+        self.repository.save_artifact(
+            project_id, "slide_plan", updated_artifact.model_dump(mode="json")
+        )
+        return updated_page
 
     def generate_svg(self, project_id: str) -> SvgSlideArtifact:
         project = self.get_project(project_id)

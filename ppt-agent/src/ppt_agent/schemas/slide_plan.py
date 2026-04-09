@@ -26,3 +26,17 @@ class SlidePlanArtifact(BaseModel):
     project_id: str
     version: int
     pages: list[SlidePlanPage]
+
+
+class SlidePlanBlockUpdate(BaseModel):
+    block_id: str
+    title: str | None = None
+    content: str | None = None
+    emphasis: str | None = None
+
+
+class SlidePlanPageUpdateRequest(BaseModel):
+    title: str | None = None
+    core_message: str | None = None
+    visual_focus: str | None = None
+    blocks: list[SlidePlanBlockUpdate] | None = None
