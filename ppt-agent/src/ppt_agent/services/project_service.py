@@ -239,6 +239,10 @@ class ProjectService:
         updated_blocks = page.blocks
         if payload.blocks is not None:
             block_map = {b.block_id: b for b in payload.blocks}
+            existing_ids = {b.block_id for b in page.blocks}
+            unknown_ids = set(block_map.keys()) - existing_ids
+            if unknown_ids:
+                raise ProjectNotFoundError(f"Unknown block_ids: {', '.join(unknown_ids)}")
             updated_blocks = [
                 block.model_copy(
                     update={

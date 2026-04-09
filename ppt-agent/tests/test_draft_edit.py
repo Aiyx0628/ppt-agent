@@ -92,3 +92,32 @@ def test_update_slide_plan_page_persists(service: ProjectService, repository: St
 
     reloaded = service.get_slide_plan(project_id)
     assert reloaded.pages[0].title == "持久化标题"
+
+
+def test_update_nonexistent_block_raises(service: ProjectService, repository: StorageRepository):
+    project_id = make_project(service)
+    seed_slide_plan(repository, project_id)
+
+    from ppt_agent.services.storage_repository import ProjectNotFoundError
+    with pytest.raises(ProjectNotFoundError, match="Unknown block_ids"):
+        service.update_slide_plan_page(
+            project_id,
+            f"{project_id}_s1",
+            SlidePlanPageUpdateRequest(
+                blocks=[SlidePlanBlockUpdate(block_id="nonexistent", content="x")]
+            ),
+        )
+
+
+def test_update_empty_payload_changes_nothing(service: ProjectService, repository: StorageRepository):
+    project_id = make_project(service)
+    seed_slide_plan(repository, project_id)
+
+    updated = service.update_slide_plan_page(
+        project_id,
+        f"{project_id}_s1",
+        SlidePlanPageUpdateRequest(),  # 全部 None
+    )
+
+    assert updated.title == "封面"
+    assert updated.blocks[0].content == "原始内容"
