@@ -127,4 +127,26 @@ export const api = {
         body: JSON.stringify(payload),
       }
     ),
+  exportSvg: async (projectId: string): Promise<void> => {
+    const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/export/svg`);
+    if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${projectId}_slides.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  exportPdf: async (projectId: string): Promise<void> => {
+    const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/export/pdf`);
+    if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${projectId}_slides.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };

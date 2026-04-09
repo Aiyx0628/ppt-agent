@@ -85,6 +85,7 @@ export function App() {
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
   const [composer, setComposer] = useState(DEFAULT_PROMPT);
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const runtime = window.deckflow.getRuntimeInfo();
@@ -611,9 +612,39 @@ export function App() {
           <button className="ghost-button" type="button">
             放映
           </button>
-          <button className="export-button" type="button">
-            导出
-          </button>
+          <div className="export-dropdown" style={{ position: "relative" }}>
+            <button
+              className="export-button"
+              onClick={() => setExportMenuOpen((v) => !v)}
+              type="button"
+            >
+              导出 ▾
+            </button>
+            {exportMenuOpen && workspace.selectedProjectId ? (
+              <div className="export-menu">
+                <button
+                  className="export-menu-item"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    void api.exportSvg(workspace.selectedProjectId!);
+                  }}
+                  type="button"
+                >
+                  导出 SVG（zip）
+                </button>
+                <button
+                  className="export-menu-item"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    void api.exportPdf(workspace.selectedProjectId!);
+                  }}
+                  type="button"
+                >
+                  导出 PDF
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
