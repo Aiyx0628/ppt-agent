@@ -11,6 +11,7 @@ import type {
   SlidePlanPage,
   SlidePlanPageUpdateRequest,
   SvgSlideArtifact,
+  SvgSlidePage,
 } from "../types";
 
 const apiBaseUrl = window.deckflow.getRuntimeInfo().apiBaseUrl;
@@ -103,6 +104,10 @@ export const api = {
     request<SvgSlideArtifact>(`/api/projects/${projectId}/svg`),
   generateSvg: (projectId: string) =>
     request<SvgSlideArtifact>(`/api/projects/${projectId}/svg/generate`, {
+      method: "POST",
+    }),
+  regenerateSvgPage: (projectId: string, slideId: string) =>
+    request<SvgSlidePage>(`/api/projects/${projectId}/svg/pages/${slideId}/generate`, {
       method: "POST",
     }),
   reorderOutline: (projectId: string, slideIds: string[]) =>

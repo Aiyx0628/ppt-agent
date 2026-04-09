@@ -42,6 +42,7 @@ type WorkspaceState = {
     blocks: Array<{ block_id: string; title: string; content: string; emphasis: string }>;
   } | null;
   isSaving: boolean;
+  regeneratingSlideId: string | null;
   error: string | null;
 };
 
@@ -78,6 +79,7 @@ export function App() {
     isBusy: false,
     draftEditState: null,
     isSaving: false,
+    regeneratingSlideId: null,
     error: null,
   });
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
@@ -450,6 +452,33 @@ export function App() {
     }
   }
 
+  async function handleRegenerateSvgPage(slideId: string) {
+    if (!workspace.selectedProjectId) return;
+    setWorkspace((current) => ({ ...current, regeneratingSlideId: slideId, error: null }));
+    try {
+      const newPage = await api.regenerateSvgPage(workspace.selectedProjectId, slideId);
+      startTransition(() => {
+        setWorkspace((current) => ({
+          ...current,
+          svgArtifact: current.svgArtifact
+            ? {
+                ...current.svgArtifact,
+                pages: current.svgArtifact.pages.map((p) =>
+                  p.slide_id === newPage.slide_id ? newPage : p
+                ),
+              }
+            : null,
+          regeneratingSlideId: null,
+        }));
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "重新生成失败";
+      startTransition(() => {
+        setWorkspace((current) => ({ ...current, regeneratingSlideId: null, error: message }));
+      });
+    }
+  }
+
   async function handleDrop(targetSlideId: string) {
     if (!workspace.selectedProjectId || !workspace.outline || !draggedSlideId) {
       return;
@@ -645,6 +674,7 @@ export function App() {
                     (page) => page.slide_id === slide.slide_id
                   )}
                   title={slide.title}
+                  regeneratingSlideId={workspace.regeneratingSlideId}
                 />
               </button>
             ))}
@@ -676,7 +706,16 @@ export function App() {
                 />
               ) : null}
               {stage === "design" ? (
-                <DesignWorkspace page={selectedSvgPage} planPage={selectedPlanPage} />
+                <DesignWorkspace
+                  page={selectedSvgPage}
+                  planPage={selectedPlanPage}
+                  isRegenerating={workspace.regeneratingSlideId === selectedSlideId}
+                  onRegenerate={() =>
+                    selectedSlideId
+                      ? void handleRegenerateSvgPage(selectedSlideId)
+                      : undefined
+                  }
+                />
               ) : null}
             </div>
 
@@ -966,9 +1005,13 @@ function DraftWorkspace({
 function DesignWorkspace({
   page,
   planPage,
+  isRegenerating,
+  onRegenerate,
 }: {
   page: SvgSlidePage | null;
   planPage: SlidePlanPage | null;
+  isRegenerating: boolean;
+  onRegenerate: () => void;
 }) {
   if (!page) {
     return <EmptyWorkspace title="设计稿" description="等待后端生成 svg 设计稿。" />;
@@ -979,6 +1022,14 @@ function DesignWorkspace({
       <div className="workspace-section-heading">
         <span>设计稿</span>
         <strong>{page.title}</strong>
+        <button
+          className="ghost-button"
+          disabled={isRegenerating}
+          onClick={onRegenerate}
+          type="button"
+        >
+          {isRegenerating ? "生成中..." : "重新生成"}
+        </button>
       </div>
 
       <div className="workspace-card workspace-card-primary">
@@ -986,7 +1037,7 @@ function DesignWorkspace({
           <strong>渲染结果</strong>
           <span className="topic-pill">{`SVG ${page.svg.length} chars`}</span>
         </div>
-        <p>右侧直接展示后端返回的完整 SVG 设计稿，不再使用前端拼出来的占位页面。</p>
+        <p>右侧直接展示后端返回的完整 SVG 设计稿。</p>
       </div>
 
       {planPage ? (
@@ -1105,6 +1156,7 @@ function StageThumbnail({
   searchPage,
   draftPage,
   svgPage,
+  regeneratingSlideId,
 }: {
   stage: StageView;
   title: string;
@@ -1112,6 +1164,7 @@ function StageThumbnail({
   searchPage: SearchPage | undefined;
   draftPage: SlidePlanPage | undefined;
   svgPage: SvgSlidePage | undefined;
+  regeneratingSlideId: string | null;
 }) {
   return (
     <div className="slide-thumb-canvas">
@@ -1146,10 +1199,14 @@ function StageThumbnail({
 
       {stage === "design" ? (
         svgPage ? (
-          <div
-            className="slide-thumb-design-live"
-            dangerouslySetInnerHTML={{ __html: svgPage.svg }}
-          />
+          regeneratingSlideId === svgPage.slide_id ? (
+            <ThumbnailLoading />
+          ) : (
+            <div
+              className="slide-thumb-design-live"
+              dangerouslySetInnerHTML={{ __html: svgPage.svg }}
+            />
+          )
         ) : (
           <ThumbnailLoading />
         )
