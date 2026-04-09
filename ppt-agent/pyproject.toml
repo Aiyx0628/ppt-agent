@@ -16,12 +16,6 @@ dependencies = [
     "uvicorn[standard]>=0.35,<1.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0,<9.0",
-    "httpx>=0.28,<1.0",
-]
-
 [project.scripts]
 ppt-agent = "ppt_agent.__main__:main"
 

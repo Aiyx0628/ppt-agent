@@ -1,11 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from ppt_agent.api.app import create_app
 from ppt_agent.config import get_settings
-from ppt_agent.services.storage_repository import StorageRepository
 from ppt_agent.services.project_service import ProjectService
+from ppt_agent.services.storage_repository import StorageRepository
 
 
 @pytest.fixture
