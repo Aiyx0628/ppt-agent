@@ -6,6 +6,7 @@ Electron desktop client for the workspace.
 
 - Node `24`
 - Package manager: `npm`
+- Electron entry: `src/main.js`
 
 ## Commands
 
