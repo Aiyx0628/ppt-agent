@@ -36,3 +36,5 @@ coverage/
 *.tsbuildinfo
 
 .git.repo-backup/
+
+storage/
