@@ -149,3 +149,17 @@ export type SvgSlideArtifact = {
   version: number;
   pages: SvgSlidePage[];
 };
+
+export type SlidePlanBlockUpdate = {
+  block_id: string;
+  title?: string;
+  content?: string;
+  emphasis?: "high" | "medium" | "low";
+};
+
+export type SlidePlanPageUpdateRequest = {
+  title?: string;
+  core_message?: string;
+  visual_focus?: string;
+  blocks?: SlidePlanBlockUpdate[];
+};

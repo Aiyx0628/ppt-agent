@@ -8,6 +8,8 @@ import type {
   RequirementBrief,
   SearchArtifact,
   SlidePlanArtifact,
+  SlidePlanPage,
+  SlidePlanPageUpdateRequest,
   SvgSlideArtifact,
 } from "../types";
 
@@ -108,4 +110,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ slide_ids: slideIds }),
     }),
+  updateSlidePlanPage: (
+    projectId: string,
+    slideId: string,
+    payload: SlidePlanPageUpdateRequest
+  ) =>
+    request<SlidePlanPage>(
+      `/api/projects/${projectId}/slide-plan/pages/${slideId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }
+    ),
 };

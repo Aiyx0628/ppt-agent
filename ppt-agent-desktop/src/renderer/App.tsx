@@ -35,6 +35,13 @@ type WorkspaceState = {
   svgArtifact: SvgSlideArtifact | null;
   selectedSlideId: string | null;
   isBusy: boolean;
+  draftEditState: {
+    title: string;
+    core_message: string;
+    visual_focus: string;
+    blocks: Array<{ block_id: string; title: string; content: string; emphasis: string }>;
+  } | null;
+  isSaving: boolean;
   error: string | null;
 };
 
@@ -69,6 +76,8 @@ export function App() {
     svgArtifact: null,
     selectedSlideId: null,
     isBusy: false,
+    draftEditState: null,
+    isSaving: false,
     error: null,
   });
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
@@ -378,6 +387,69 @@ export function App() {
     }
   }
 
+  function initDraftEdit(page: SlidePlanPage) {
+    startTransition(() => {
+      setWorkspace((current) => ({
+        ...current,
+        draftEditState: {
+          title: page.title,
+          core_message: page.core_message,
+          visual_focus: page.visual_focus,
+          blocks: page.blocks.map((b) => ({
+            block_id: b.block_id,
+            title: b.title,
+            content: b.content,
+            emphasis: b.emphasis,
+          })),
+        },
+      }));
+    });
+  }
+
+  async function handleSaveDraftPage() {
+    if (!workspace.selectedProjectId || !selectedSlideId || !workspace.draftEditState) {
+      return;
+    }
+    setWorkspace((current) => ({ ...current, isSaving: true, error: null }));
+    try {
+      const updatedPage = await api.updateSlidePlanPage(
+        workspace.selectedProjectId,
+        selectedSlideId,
+        {
+          title: workspace.draftEditState.title,
+          core_message: workspace.draftEditState.core_message,
+          visual_focus: workspace.draftEditState.visual_focus,
+          blocks: workspace.draftEditState.blocks.map((b) => ({
+            block_id: b.block_id,
+            title: b.title,
+            content: b.content,
+            emphasis: b.emphasis as "high" | "medium" | "low",
+          })),
+        }
+      );
+      startTransition(() => {
+        setWorkspace((current) => ({
+          ...current,
+          slidePlan: current.slidePlan
+            ? {
+                ...current.slidePlan,
+                pages: current.slidePlan.pages.map((p) =>
+                  p.slide_id === updatedPage.slide_id ? updatedPage : p
+                ),
+              }
+            : null,
+          draftEditState: null,
+          isSaving: false,
+        }));
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "保存失败";
+      startTransition(() => {
+        setWorkspace((current) => ({ ...current, isSaving: false, error: message }));
+      });
+    }
+  }
+
   async function handleDrop(targetSlideId: string) {
     if (!workspace.selectedProjectId || !workspace.outline || !draggedSlideId) {
       return;
@@ -586,7 +658,22 @@ export function App() {
                 <SearchWorkspace page={selectedSearchPage} research={workspace.research} />
               ) : null}
               {stage === "draft" ? (
-                <DraftWorkspace page={selectedPlanPage} brief={workspace.brief} />
+                <DraftWorkspace
+                  page={selectedPlanPage}
+                  brief={workspace.brief}
+                  editState={workspace.draftEditState}
+                  isSaving={workspace.isSaving}
+                  onInitEdit={initDraftEdit}
+                  onEditChange={(patch) =>
+                    setWorkspace((current) => ({
+                      ...current,
+                      draftEditState: current.draftEditState
+                        ? { ...current.draftEditState, ...patch }
+                        : null,
+                    }))
+                  }
+                  onSave={() => void handleSaveDraftPage()}
+                />
               ) : null}
               {stage === "design" ? (
                 <DesignWorkspace page={selectedSvgPage} planPage={selectedPlanPage} />
@@ -603,7 +690,17 @@ export function App() {
               </div>
 
               {stage === "search" ? <SearchPreview page={selectedSearchPage} /> : null}
-              {stage === "draft" ? <DraftPreview page={selectedPlanPage} /> : null}
+              {stage === "draft" ? (
+                <DraftPreview
+                  pages={workspace.slidePlan?.pages ?? []}
+                  selectedSlideId={selectedSlideId}
+                  onSelectSlide={(slideId) =>
+                    startTransition(() =>
+                      setWorkspace((current) => ({ ...current, selectedSlideId: slideId }))
+                    )
+                  }
+                />
+              ) : null}
               {stage === "design" ? <SvgPreview page={selectedSvgPage} /> : null}
             </div>
           </section>
@@ -692,54 +789,176 @@ function SearchWorkspace({
 function DraftWorkspace({
   page,
   brief,
+  editState,
+  isSaving,
+  onInitEdit,
+  onEditChange,
+  onSave,
 }: {
   page: SlidePlanPage | null;
   brief: RequirementBrief | null;
+  editState: {
+    title: string;
+    core_message: string;
+    visual_focus: string;
+    blocks: Array<{ block_id: string; title: string; content: string; emphasis: string }>;
+  } | null;
+  isSaving: boolean;
+  onInitEdit: (page: SlidePlanPage) => void;
+  onEditChange: (patch: {
+    title?: string;
+    core_message?: string;
+    visual_focus?: string;
+    blocks?: Array<{ block_id: string; title: string; content: string; emphasis: string }>;
+  }) => void;
+  onSave: () => void;
 }) {
   if (!page) {
     return <EmptyWorkspace title="初稿" description="等待后端生成 slide_plan。" />;
   }
 
+  const isEditing = editState !== null;
+  const display = editState ?? {
+    title: page.title,
+    core_message: page.core_message,
+    visual_focus: page.visual_focus,
+    blocks: page.blocks,
+  };
+
   return (
     <>
       <div className="workspace-section-heading">
         <span>初稿内容</span>
-        <strong>{page.title}</strong>
+        {!isEditing ? (
+          <button className="ghost-button" onClick={() => onInitEdit(page)} type="button">
+            编辑
+          </button>
+        ) : (
+          <button
+            className="submit-button"
+            disabled={isSaving}
+            onClick={onSave}
+            type="button"
+          >
+            {isSaving ? "保存中..." : "保存"}
+          </button>
+        )}
       </div>
 
       <div className="workspace-card workspace-card-primary">
         <div className="workspace-meta-row">
-          <strong>核心表达</strong>
-          <span className="topic-pill">{page.narrative_role}</span>
+          <strong>页面标题</strong>
         </div>
-        <p>{page.core_message}</p>
+        {isEditing ? (
+          <input
+            className="draft-edit-input"
+            value={display.title}
+            onChange={(e) => onEditChange({ title: e.target.value })}
+          />
+        ) : (
+          <h3>{display.title}</h3>
+        )}
       </div>
 
       <div className="workspace-card">
         <div className="workspace-meta-row">
-          <strong>版式意图</strong>
-          <span className="topic-pill">{page.suggested_layout}</span>
+          <strong>核心表达</strong>
+          <span className="topic-pill">{page.narrative_role}</span>
         </div>
-        <ul className="fact-list">
-          <li>{`视觉重心：${page.visual_focus}`}</li>
-          {brief ? <li>{`语气：${brief.tone}`}</li> : null}
-          {page.design_notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
+        {isEditing ? (
+          <textarea
+            className="draft-edit-textarea"
+            value={display.core_message}
+            rows={3}
+            onChange={(e) => onEditChange({ core_message: e.target.value })}
+          />
+        ) : (
+          <p>{display.core_message}</p>
+        )}
       </div>
 
       <div className="workspace-card-list">
-        {page.blocks.map((block) => (
+        {display.blocks.map((block, index) => (
           <article className="workspace-card" key={block.block_id}>
             <div className="workspace-meta-row">
-              <strong>{block.title}</strong>
-              <span className="topic-pill">{`${block.kind} / ${block.emphasis}`}</span>
+              {isEditing ? (
+                <input
+                  className="draft-edit-input"
+                  value={block.title}
+                  onChange={(e) => {
+                    const next = display.blocks.map((b, i) =>
+                      i === index ? { ...b, title: e.target.value } : b
+                    );
+                    onEditChange({ blocks: next });
+                  }}
+                />
+              ) : (
+                <strong>{block.title}</strong>
+              )}
+              <span className="topic-pill">{`${(page.blocks[index] as { kind?: string })?.kind ?? ""} / ${block.emphasis}`}</span>
             </div>
-            <p>{block.content}</p>
+            {isEditing ? (
+              <textarea
+                className="draft-edit-textarea"
+                value={block.content}
+                rows={3}
+                onChange={(e) => {
+                  const next = display.blocks.map((b, i) =>
+                    i === index ? { ...b, content: e.target.value } : b
+                  );
+                  onEditChange({ blocks: next });
+                }}
+              />
+            ) : (
+              <p>{block.content}</p>
+            )}
+            {isEditing && (
+              <div className="draft-block-reorder">
+                <button
+                  className="ghost-button"
+                  disabled={index === 0}
+                  onClick={() => {
+                    const next = [...display.blocks];
+                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                    onEditChange({ blocks: next });
+                  }}
+                  type="button"
+                >
+                  ↑
+                </button>
+                <button
+                  className="ghost-button"
+                  disabled={index === display.blocks.length - 1}
+                  onClick={() => {
+                    const next = [...display.blocks];
+                    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                    onEditChange({ blocks: next });
+                  }}
+                  type="button"
+                >
+                  ↓
+                </button>
+              </div>
+            )}
           </article>
         ))}
       </div>
+
+      {brief && !isEditing ? (
+        <div className="workspace-card">
+          <div className="workspace-meta-row">
+            <strong>版式意图</strong>
+            <span className="topic-pill">{page.suggested_layout}</span>
+          </div>
+          <ul className="fact-list">
+            <li>{`视觉重心：${page.visual_focus}`}</li>
+            <li>{`语气：${brief.tone}`}</li>
+            {page.design_notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -815,37 +1034,49 @@ function SearchPreview({ page }: { page: SearchPage | null }) {
   );
 }
 
-function DraftPreview({ page }: { page: SlidePlanPage | null }) {
-  if (!page) {
-    return <EmptyPreview description="初稿阶段会在这里展示 slide_plan 驱动的页面预览。" />;
+function DraftPreview({
+  pages,
+  selectedSlideId,
+  onSelectSlide,
+}: {
+  pages: SlidePlanPage[];
+  selectedSlideId: string | null;
+  onSelectSlide: (slideId: string) => void;
+}) {
+  if (pages.length === 0) {
+    return <EmptyPreview description="初稿阶段会在这里展示全套 PPT 预览。" />;
   }
 
   return (
-    <div className="preview-canvas-frame">
-      <div className="artboard-wrapper">
-        <div className="artboard">
-          <div className="artboard-title">
-            <span className="title-marker" />
-            <div className="title-copy">
-              <h2>{page.title}</h2>
+    <div className="deck-list-preview">
+      {pages.map((page) => (
+        <button
+          key={page.slide_id}
+          className={`deck-list-item ${page.slide_id === selectedSlideId ? "deck-list-item-active" : ""}`}
+          onClick={() => onSelectSlide(page.slide_id)}
+          type="button"
+        >
+          <div className="artboard artboard-mini">
+            <div className="artboard-title">
+              <span className="title-marker" />
+              <div className="title-copy">
+                <h2>{page.title}</h2>
+              </div>
+              <div className="title-meta">{`Page ${page.order_no.toString().padStart(2, "0")}`}</div>
             </div>
-            <div className="title-meta">{`Page ${page.order_no.toString().padStart(2, "0")}`}</div>
+            <div className="artboard-grid">
+              {page.blocks.slice(0, 2).map((block) => (
+                <section className="art-card" key={block.block_id}>
+                  <div className="art-card-head">
+                    <h3>{block.title}</h3>
+                  </div>
+                  <p className="canvas-copy">{block.content}</p>
+                </section>
+              ))}
+            </div>
           </div>
-
-          <div className="artboard-grid">
-            {page.blocks.slice(0, 4).map((block) => (
-              <section className="art-card" key={block.block_id}>
-                <div className="art-card-head">
-                  <h3>{block.title}</h3>
-                  <span className="blue-tag">{block.kind}</span>
-                </div>
-                <p className="canvas-copy">{block.content}</p>
-                <div className="status-strip">{block.emphasis}</div>
-              </section>
-            ))}
-          </div>
-        </div>
-      </div>
+        </button>
+      ))}
     </div>
   );
 }
