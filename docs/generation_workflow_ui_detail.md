@@ -444,3 +444,61 @@
 - 初稿阶段右侧是完整 PPT 预览器
 - 设计稿阶段是基于初稿进一步精修的结果
 - 页面结构一眼能看出自己处于 `搜索 / 初稿 / 设计稿` 哪个阶段
+
+## 10. 当前已完成
+
+截至 2026-04-09，当前页面与接口状态如下：
+
+- 页面 1 现在只保留输入框和上传文件入口
+- 页面 1 已切到真实 intake 接口：`POST /api/projects/intake`
+- 后端会解析 prompt，并抽取页数、风格、场景、受众等基础配置
+- 后端已支持读取 `txt / md / docx` 文件正文
+- 页面 2 已固定为桌面端编辑器式三栏布局
+- 左上阶段按钮固定为 `搜索 / 初稿 / 设计稿`
+- 左侧缩略图会随当前阶段切换展示真实对应数据
+- 搜索阶段读取真实 `search` artifact
+- 初稿阶段读取真实 `slide_plan` artifact
+- 设计稿阶段读取真实 `svg` artifact
+- 设计稿右侧已直接渲染后端返回的 SVG 字符串
+- 前端已经去掉原先在 renderer 中构造的 mock slide context
+
+当前已落地接口：
+
+- `POST /api/projects/intake`
+- `POST /api/projects/{id}/research/run`
+- `GET /api/projects/{id}/research`
+- `POST /api/projects/{id}/brief/generate`
+- `GET /api/projects/{id}/brief`
+- `POST /api/projects/{id}/outline/generate`
+- `GET /api/projects/{id}/outline`
+- `POST /api/projects/{id}/outline/reorder`
+- `POST /api/projects/{id}/search/generate`
+- `GET /api/projects/{id}/search`
+- `POST /api/projects/{id}/slide-plan/generate`
+- `GET /api/projects/{id}/slide-plan`
+- `POST /api/projects/{id}/svg/generate`
+- `GET /api/projects/{id}/svg`
+
+## 11. 当前未完成
+
+当前页面和交互还缺以下能力：
+
+- 页面 1 还没有把“主题、页数、风格”等做成显式结构化可编辑字段，仍以自然语言 prompt 为主
+- 页面 1 还没有上传进度、失败提示和文件预处理提示
+- 搜索阶段还没有真正接入外部搜索引擎结果，当前主要展示后端 research artifact
+- 搜索阶段还没有主题聚类的独立可视化面板
+- 初稿阶段还没有真正的块级编辑和保存接口
+- 初稿阶段还没有右侧“完整整套 PPT 加载器”的长列表浏览形态，当前以当前页主预览为主
+- 设计稿阶段还没有单页重跑、局部重渲染和设计差异对比
+- 左侧缩略图虽然已经切换到真实数据，但设计稿缩略图仍是直接缩放 SVG，并非独立生成的缩略图文件
+- 还没有自动推进动画、生成进度条和更完整的任务状态提示
+
+## 12. 后续页面开发顺序
+
+建议继续按以下顺序推进：
+
+1. 搜索阶段接真实联网 sources
+2. 初稿阶段补内容编辑与保存
+3. 右侧补完整 deck 级加载器
+4. 设计稿阶段补单页重跑
+5. 最后再补导出和 review 面板

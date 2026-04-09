@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -89,6 +90,14 @@ class StorageRepository:
         self._record_artifact(project_id, artifact_type, version, target)
         return stored
 
+    def save_source_file(self, project_id: str, filename: str, content: bytes) -> Path:
+        source_dir = self._project_dir(project_id) / "sources"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = self._safe_filename(filename)
+        target = source_dir / safe_name
+        target.write_bytes(content)
+        return target
+
     def _project_dir(self, project_id: str) -> Path:
         return self.projects_root / project_id
 
@@ -108,6 +117,11 @@ class StorageRepository:
     def _write_json(self, target: Path, payload: dict[str, Any]) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, ensure_ascii=True, indent=2))
+
+    def _safe_filename(self, filename: str) -> str:
+        candidate = Path(filename or "upload.bin").name
+        normalized = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate).strip("._")
+        return normalized or "upload.bin"
 
     def _sync_project_record(self, project: ProjectResponse) -> None:
         session_factory = get_session_factory()

@@ -1,13 +1,26 @@
+import json
+from io import BytesIO
 from datetime import UTC, datetime
 from functools import lru_cache
 import re
+from pathlib import Path
 from uuid import uuid4
+from xml.sax.saxutils import escape
+import zipfile
+from xml.etree import ElementTree
+
+from pydantic import ValidationError
 
 from ppt_agent.config import get_settings
 from ppt_agent.schemas.brief import BriefConfirmResponse, BriefQuestion, BriefUpdateRequest, RequirementBrief
+from ppt_agent.schemas.model import GenerateTextRequest
 from ppt_agent.schemas.outline import OutlineArtifact, OutlineReorderRequest, OutlineSlide
 from ppt_agent.schemas.project import ProjectCreateRequest, ProjectResponse, ProjectUpdateRequest
 from ppt_agent.schemas.research import ResearchPack, ResearchTopic
+from ppt_agent.schemas.search import SearchArtifact, SearchPage
+from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanBlock, SlidePlanPage
+from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
+from ppt_agent.services.model_router import ModelProviderError, get_model_router
 from ppt_agent.services.storage_repository import ProjectNotFoundError, StorageRepository
 
 
@@ -31,6 +44,26 @@ class ProjectService:
         )
         return self.repository.create_project(project)
 
+    def create_project_from_intake(
+        self,
+        prompt: str,
+        uploads: list[tuple[str, bytes]],
+    ) -> ProjectResponse:
+        prompt_text = prompt.strip()
+        if len(prompt_text) < 3:
+            raise ValueError("Prompt must be at least 3 characters.")
+
+        files_text = self._compose_source_materials(uploads)
+        payload = ProjectCreateRequest(
+            title=self._derive_title_from_intake(prompt_text, uploads),
+            topic=self._build_topic_from_intake(prompt_text, files_text, uploads),
+            config=self._parse_project_config(prompt_text),
+        )
+        project = self.create_project(payload)
+        for filename, content in uploads:
+            self.repository.save_source_file(project.id, filename, content)
+        return project
+
     def get_project(self, project_id: str) -> ProjectResponse:
         return self.repository.get_project(project_id)
 
@@ -42,6 +75,365 @@ class ProjectService:
 
     def generate_research(self, project_id: str) -> ResearchPack:
         project = self.get_project(project_id)
+        pack = self._generate_research_with_fallback(project)
+        stored = self.repository.save_artifact(
+            project_id, "research", pack.model_dump(mode="json")
+        )
+        self.repository.update_project(
+            project_id,
+            ProjectUpdateRequest(status="briefing"),
+        )
+        return ResearchPack.model_validate(stored)
+
+    def get_research(self, project_id: str) -> ResearchPack:
+        stored = self.repository.load_artifact(project_id, "research")
+        return ResearchPack.model_validate(stored)
+
+    def generate_search_pages(self, project_id: str) -> SearchArtifact:
+        try:
+            research = self.get_research(project_id)
+        except ProjectNotFoundError:
+            research = self.generate_research(project_id)
+
+        try:
+            outline = self.get_outline(project_id)
+        except ProjectNotFoundError:
+            outline = self.generate_outline(project_id)
+
+        pages = []
+        for slide in outline.slides:
+            related_topics = self._select_related_topics(slide, research.topics)
+            pages.append(
+                SearchPage(
+                    slide_id=slide.slide_id,
+                    order_no=slide.order_no,
+                    title=slide.title,
+                    section=slide.section,
+                    key_message=slide.key_message,
+                    summary=related_topics[0].summary if related_topics else research.summary,
+                    facts=self._dedupe_strings(
+                        [slide.key_message, *[fact for topic in related_topics for fact in topic.facts]]
+                    )[:6],
+                    citations=[
+                        citation
+                        for topic in related_topics
+                        for citation in topic.citations
+                    ][:6],
+                )
+            )
+        artifact = SearchArtifact(project_id=project_id, version=1, pages=pages)
+        stored = self.repository.save_artifact(
+            project_id, "search_pages", artifact.model_dump(mode="json")
+        )
+        return SearchArtifact.model_validate(stored)
+
+    def get_search_pages(self, project_id: str) -> SearchArtifact:
+        stored = self.repository.load_artifact(project_id, "search_pages")
+        return SearchArtifact.model_validate(stored)
+
+    def generate_brief(self, project_id: str) -> RequirementBrief:
+        project = self.get_project(project_id)
+        try:
+            research = self.get_research(project_id)
+        except ProjectNotFoundError:
+            research = self.generate_research(project_id)
+
+        brief = self._generate_brief_with_fallback(project, research)
+        stored = self.repository.save_artifact(
+            project_id, "brief", brief.model_dump(mode="json")
+        )
+        return RequirementBrief.model_validate(stored)
+
+    def get_brief(self, project_id: str) -> RequirementBrief:
+        stored = self.repository.load_artifact(project_id, "brief")
+        return RequirementBrief.model_validate(stored)
+
+    def update_brief(self, project_id: str, payload: BriefUpdateRequest) -> RequirementBrief:
+        current = self._get_or_generate_brief(project_id)
+        updated = current.model_copy(
+            update={
+                "goal": payload.goal if payload.goal is not None else current.goal,
+                "tone": payload.tone if payload.tone is not None else current.tone,
+                "must_include": payload.must_include if payload.must_include is not None else current.must_include,
+                "forbidden": payload.forbidden if payload.forbidden is not None else current.forbidden,
+                "key_questions": payload.key_questions if payload.key_questions is not None else current.key_questions,
+            }
+        )
+        stored = self.repository.save_artifact(
+            project_id, "brief", updated.model_dump(mode="json")
+        )
+        return RequirementBrief.model_validate(stored)
+
+    def confirm_brief(self, project_id: str) -> BriefConfirmResponse:
+        current = self._get_or_generate_brief(project_id)
+        confirmed = current.model_copy(update={"confirmed": True})
+        self.repository.save_artifact(
+            project_id, "brief", confirmed.model_dump(mode="json")
+        )
+        self.repository.update_project(
+            project_id,
+            ProjectUpdateRequest(status="brief_confirmed"),
+        )
+        return BriefConfirmResponse(project_id=project_id, confirmed=True)
+
+    def generate_outline(self, project_id: str) -> OutlineArtifact:
+        project = self.get_project(project_id)
+        brief = self._get_or_generate_brief(project_id)
+        outline = self._generate_outline_with_fallback(project, brief)
+        stored = self.repository.save_artifact(
+            project_id, "outline", outline.model_dump(mode="json")
+        )
+        self.repository.update_project(
+            project_id,
+            ProjectUpdateRequest(status="outline_ready"),
+        )
+        return OutlineArtifact.model_validate(stored)
+
+    def get_outline(self, project_id: str) -> OutlineArtifact:
+        stored = self.repository.load_artifact(project_id, "outline")
+        return OutlineArtifact.model_validate(stored)
+
+    def reorder_outline(
+        self, project_id: str, payload: OutlineReorderRequest
+    ) -> OutlineArtifact:
+        current = self.get_outline(project_id)
+        existing = {slide.slide_id: slide for slide in current.slides}
+        if set(payload.slide_ids) != set(existing):
+            raise ProjectNotFoundError("Outline reorder payload does not match current slides.")
+
+        slides = [
+            existing[slide_id].model_copy(update={"order_no": order + 1})
+            for order, slide_id in enumerate(payload.slide_ids)
+        ]
+        reordered = current.model_copy(update={"slides": slides})
+        stored = self.repository.save_artifact(
+            project_id, "outline", reordered.model_dump(mode="json")
+        )
+        return OutlineArtifact.model_validate(stored)
+
+    def generate_slide_plan(self, project_id: str) -> SlidePlanArtifact:
+        project = self.get_project(project_id)
+        brief = self._get_or_generate_brief(project_id)
+        outline = self.get_outline(project_id)
+        slide_plan = self._generate_slide_plan_with_fallback(project, brief, outline)
+        stored = self.repository.save_artifact(
+            project_id, "slide_plan", slide_plan.model_dump(mode="json")
+        )
+        return SlidePlanArtifact.model_validate(stored)
+
+    def get_slide_plan(self, project_id: str) -> SlidePlanArtifact:
+        stored = self.repository.load_artifact(project_id, "slide_plan")
+        return SlidePlanArtifact.model_validate(stored)
+
+    def generate_svg(self, project_id: str) -> SvgSlideArtifact:
+        project = self.get_project(project_id)
+        slide_plan = self.get_slide_plan(project_id)
+        svg_artifact = self._generate_svg_with_fallback(project, slide_plan)
+        stored = self.repository.save_artifact(
+            project_id, "svg_slide", svg_artifact.model_dump(mode="json")
+        )
+        return SvgSlideArtifact.model_validate(stored)
+
+    def get_svg(self, project_id: str) -> SvgSlideArtifact:
+        stored = self.repository.load_artifact(project_id, "svg_slide")
+        return SvgSlideArtifact.model_validate(stored)
+
+    def _get_or_generate_brief(self, project_id: str) -> RequirementBrief:
+        try:
+            stored = self.repository.load_artifact(project_id, "brief")
+            return RequirementBrief.model_validate(stored)
+        except ProjectNotFoundError:
+            return self.generate_brief(project_id)
+
+    def _generate_research_with_fallback(self, project: ProjectResponse) -> ResearchPack:
+        try:
+            return self._generate_research_with_model(project)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return self._generate_research_fallback(project)
+
+    def _generate_brief_with_fallback(
+        self,
+        project: ProjectResponse,
+        research: ResearchPack,
+    ) -> RequirementBrief:
+        try:
+            return self._generate_brief_with_model(project, research)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return self._generate_brief_fallback(project, research)
+
+    def _generate_outline_with_fallback(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+    ) -> OutlineArtifact:
+        try:
+            return self._generate_outline_with_model(project, brief)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return self._generate_outline_fallback(project, brief)
+
+    def _generate_slide_plan_with_fallback(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+        outline: OutlineArtifact,
+    ) -> SlidePlanArtifact:
+        try:
+            return self._generate_slide_plan_with_model(project, brief, outline)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return self._generate_slide_plan_fallback(project, brief, outline)
+
+    def _generate_svg_with_fallback(
+        self,
+        project: ProjectResponse,
+        slide_plan: SlidePlanArtifact,
+    ) -> SvgSlideArtifact:
+        try:
+            return self._generate_svg_with_model(project, slide_plan)
+        except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
+            return self._generate_svg_fallback(project, slide_plan)
+
+    def _generate_research_with_model(self, project: ProjectResponse) -> ResearchPack:
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=self._build_research_prompt(project),
+                system_instruction=(
+                    "你是 PPT 调研助理。请只输出 JSON。不要输出 markdown，不要解释。"
+                ),
+                max_output_tokens=1800,
+                temperature=0.4,
+            )
+        )
+        data = self._load_json_object(response.text)
+        payload = {
+            "project_id": project.id,
+            "version": 1,
+            "summary": data["summary"],
+            "topics": data["topics"],
+        }
+        return ResearchPack.model_validate(payload)
+
+    def _generate_brief_with_model(
+        self,
+        project: ProjectResponse,
+        research: ResearchPack,
+    ) -> RequirementBrief:
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=self._build_brief_prompt(project, research),
+                system_instruction=(
+                    "你是 PPT 需求顾问。请只输出 JSON。不要输出 markdown，不要解释。"
+                ),
+                max_output_tokens=1800,
+                temperature=0.5,
+            )
+        )
+        data = self._load_json_object(response.text)
+        payload = {
+            "project_id": project.id,
+            "version": 1,
+            "goal": data["goal"],
+            "audience": project.config.audience,
+            "tone": data["tone"],
+            "scenario": project.config.scenario,
+            "key_questions": data["key_questions"],
+            "must_include": data["must_include"],
+            "forbidden": data["forbidden"],
+            "research_summary": research.summary,
+            "confirmed": False,
+        }
+        return RequirementBrief.model_validate(payload)
+
+    def _generate_outline_with_model(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+    ) -> OutlineArtifact:
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=self._build_outline_prompt(project, brief),
+                system_instruction=(
+                    "你是 PPT 大纲策划专家。请只输出 JSON。不要输出 markdown，不要解释。"
+                ),
+                max_output_tokens=2200,
+                temperature=0.5,
+            )
+        )
+        data = self._load_json_object(response.text)
+        slides = [
+            OutlineSlide(
+                slide_id=f"{project.id}_s{index + 1}",
+                order_no=index + 1,
+                section=item["section"],
+                title=item["title"],
+                type=item["type"],
+                key_message=item["key_message"],
+            )
+            for index, item in enumerate(data["slides"][: self._target_slide_count(project)])
+        ]
+        return OutlineArtifact(project_id=project.id, version=1, slides=slides)
+
+    def _generate_slide_plan_with_model(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+        outline: OutlineArtifact,
+    ) -> SlidePlanArtifact:
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=self._build_slide_plan_prompt(project, brief, outline),
+                system_instruction=(
+                    "你是 PPT 单页策划专家。请只输出 JSON。不要输出 markdown，不要解释。"
+                ),
+                max_output_tokens=3200,
+                temperature=0.5,
+            )
+        )
+        data = self._load_json_object(response.text)
+        pages = [
+            SlidePlanPage.model_validate(
+                {
+                    "slide_id": slide.slide_id,
+                    "order_no": slide.order_no,
+                    **page,
+                }
+            )
+            for slide, page in zip(outline.slides, data["pages"], strict=False)
+        ]
+        if len(pages) != len(outline.slides):
+            raise ValueError("Slide plan page count does not match outline.")
+        return SlidePlanArtifact(project_id=project.id, version=1, pages=pages)
+
+    def _generate_svg_with_model(
+        self,
+        project: ProjectResponse,
+        slide_plan: SlidePlanArtifact,
+    ) -> SvgSlideArtifact:
+        response = get_model_router().generate_text(
+            GenerateTextRequest(
+                prompt=self._build_svg_prompt(project, slide_plan),
+                system_instruction=(
+                    "你是 SVG 幻灯片设计助手。请只输出 JSON。不要输出 markdown，不要解释。"
+                ),
+                max_output_tokens=4096,
+                temperature=0.4,
+            )
+        )
+        data = self._load_json_object(response.text)
+        pages = [
+            SvgSlidePage.model_validate(
+                {
+                    "slide_id": plan_page.slide_id,
+                    "order_no": plan_page.order_no,
+                    **page,
+                }
+            )
+            for plan_page, page in zip(slide_plan.pages, data["pages"], strict=False)
+        ]
+        if len(pages) != len(slide_plan.pages):
+            raise ValueError("SVG page count does not match slide plan.")
+        return SvgSlideArtifact(project_id=project.id, version=1, pages=pages)
+
+    def _generate_research_fallback(self, project: ProjectResponse) -> ResearchPack:
         focus_points = self._extract_focus_points(project.topic)
         research_topics = [
             ResearchTopic(
@@ -83,8 +475,8 @@ class ProjectService:
                 )
             )
 
-        pack = ResearchPack(
-            project_id=project_id,
+        return ResearchPack(
+            project_id=project.id,
             version=1,
             summary=(
                 f"当前 research_pack 仅基于用户输入与项目配置整理，已抽取 {len(focus_points)} 个关注点，"
@@ -92,28 +484,14 @@ class ProjectService:
             ),
             topics=research_topics,
         )
-        stored = self.repository.save_artifact(
-            project_id, "research", pack.model_dump(mode="json")
-        )
-        self.repository.update_project(
-            project_id,
-            ProjectUpdateRequest(status="briefing"),
-        )
-        return ResearchPack.model_validate(stored)
 
-    def get_research(self, project_id: str) -> ResearchPack:
-        stored = self.repository.load_artifact(project_id, "research")
-        return ResearchPack.model_validate(stored)
-
-    def generate_brief(self, project_id: str) -> RequirementBrief:
-        project = self.get_project(project_id)
-        try:
-            research = self.get_research(project_id)
-        except ProjectNotFoundError:
-            research = self.generate_research(project_id)
-
-        brief = RequirementBrief(
-            project_id=project_id,
+    def _generate_brief_fallback(
+        self,
+        project: ProjectResponse,
+        research: ResearchPack,
+    ) -> RequirementBrief:
+        return RequirementBrief(
+            project_id=project.id,
             version=1,
             goal=f"围绕“{project.title}”输出一套适用于{project.config.scenario}场景的演示文稿，并让{project.config.audience}快速理解重点。",
             audience=project.config.audience,
@@ -144,48 +522,14 @@ class ProjectService:
             research_summary=research.summary,
             confirmed=False,
         )
-        stored = self.repository.save_artifact(
-            project_id, "brief", brief.model_dump(mode="json")
-        )
-        return RequirementBrief.model_validate(stored)
 
-    def get_brief(self, project_id: str) -> RequirementBrief:
-        stored = self.repository.load_artifact(project_id, "brief")
-        return RequirementBrief.model_validate(stored)
-
-    def update_brief(self, project_id: str, payload: BriefUpdateRequest) -> RequirementBrief:
-        current = self._get_or_generate_brief(project_id)
-        updated = current.model_copy(
-            update={
-                "goal": payload.goal if payload.goal is not None else current.goal,
-                "tone": payload.tone if payload.tone is not None else current.tone,
-                "must_include": payload.must_include if payload.must_include is not None else current.must_include,
-                "forbidden": payload.forbidden if payload.forbidden is not None else current.forbidden,
-                "key_questions": payload.key_questions if payload.key_questions is not None else current.key_questions,
-            }
-        )
-        stored = self.repository.save_artifact(
-            project_id, "brief", updated.model_dump(mode="json")
-        )
-        return RequirementBrief.model_validate(stored)
-
-    def confirm_brief(self, project_id: str) -> BriefConfirmResponse:
-        current = self._get_or_generate_brief(project_id)
-        confirmed = current.model_copy(update={"confirmed": True})
-        self.repository.save_artifact(
-            project_id, "brief", confirmed.model_dump(mode="json")
-        )
-        self.repository.update_project(
-            project_id,
-            ProjectUpdateRequest(status="brief_confirmed"),
-        )
-        return BriefConfirmResponse(project_id=project_id, confirmed=True)
-
-    def generate_outline(self, project_id: str) -> OutlineArtifact:
-        project = self.get_project(project_id)
-        brief = self._get_or_generate_brief(project_id)
+    def _generate_outline_fallback(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+    ) -> OutlineArtifact:
         focus_points = self._extract_focus_points(project.topic)
-        target_count = min(max(project.config.page_limit, 4), 16)
+        target_count = self._target_slide_count(project)
 
         plan: list[tuple[str, str, str, str]] = [
             ("封面", project.title, "cover", brief.goal),
@@ -221,7 +565,7 @@ class ProjectService:
 
         slides = [
             OutlineSlide(
-                slide_id=f"{project_id}_s{index+1}",
+                slide_id=f"{project.id}_s{index + 1}",
                 order_no=index + 1,
                 section=section,
                 title=title,
@@ -230,44 +574,74 @@ class ProjectService:
             )
             for index, (section, title, slide_type, message) in enumerate(plan[:target_count])
         ]
-        outline = OutlineArtifact(project_id=project_id, version=1, slides=slides)
-        stored = self.repository.save_artifact(
-            project_id, "outline", outline.model_dump(mode="json")
-        )
-        self.repository.update_project(
-            project_id,
-            ProjectUpdateRequest(status="outline_ready"),
-        )
-        return OutlineArtifact.model_validate(stored)
+        return OutlineArtifact(project_id=project.id, version=1, slides=slides)
 
-    def get_outline(self, project_id: str) -> OutlineArtifact:
-        stored = self.repository.load_artifact(project_id, "outline")
-        return OutlineArtifact.model_validate(stored)
-
-    def reorder_outline(
-        self, project_id: str, payload: OutlineReorderRequest
-    ) -> OutlineArtifact:
-        current = self.get_outline(project_id)
-        existing = {slide.slide_id: slide for slide in current.slides}
-        if set(payload.slide_ids) != set(existing):
-            raise ProjectNotFoundError("Outline reorder payload does not match current slides.")
-
-        slides = [
-            existing[slide_id].model_copy(update={"order_no": order + 1})
-            for order, slide_id in enumerate(payload.slide_ids)
+    def _generate_slide_plan_fallback(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+        outline: OutlineArtifact,
+    ) -> SlidePlanArtifact:
+        pages = [
+            SlidePlanPage(
+                slide_id=slide.slide_id,
+                order_no=slide.order_no,
+                title=slide.title,
+                narrative_role=self._map_narrative_role(slide.type),
+                core_message=slide.key_message,
+                visual_focus=self._infer_visual_focus(slide),
+                suggested_layout=self._infer_layout(slide),
+                design_notes=[
+                    f"受众保持为 {project.config.audience}。",
+                    f"页面语气保持 {brief.tone}",
+                    "单页只突出一个核心结论。",
+                ],
+                blocks=[
+                    SlidePlanBlock(
+                        block_id=f"{slide.slide_id}_headline",
+                        kind="headline",
+                        title="核心标题",
+                        content=slide.title,
+                        words_budget=18,
+                        emphasis="high",
+                    ),
+                    SlidePlanBlock(
+                        block_id=f"{slide.slide_id}_message",
+                        kind="summary",
+                        title="核心结论",
+                        content=slide.key_message,
+                        words_budget=40,
+                        emphasis="high",
+                    ),
+                    SlidePlanBlock(
+                        block_id=f"{slide.slide_id}_support",
+                        kind="bullets",
+                        title="支撑信息",
+                        content=self._clean_topic_text(project.topic),
+                        words_budget=90,
+                        emphasis="medium",
+                    ),
+                ],
+            )
+            for slide in outline.slides
         ]
-        reordered = current.model_copy(update={"slides": slides})
-        stored = self.repository.save_artifact(
-            project_id, "outline", reordered.model_dump(mode="json")
-        )
-        return OutlineArtifact.model_validate(stored)
+        return SlidePlanArtifact(project_id=project.id, version=1, pages=pages)
 
-    def _get_or_generate_brief(self, project_id: str) -> RequirementBrief:
-        try:
-            stored = self.repository.load_artifact(project_id, "brief")
-            return RequirementBrief.model_validate(stored)
-        except ProjectNotFoundError:
-            return self.generate_brief(project_id)
+    def _generate_svg_fallback(
+        self,
+        project: ProjectResponse,
+        slide_plan: SlidePlanArtifact,
+    ) -> SvgSlideArtifact:
+        pages = [
+            SvgSlidePage(
+                slide_id=page.slide_id,
+                order_no=page.order_no,
+                title=page.title,
+                svg=self._render_svg_page(project, page),
+            )
+            for page in slide_plan.pages
+        ]
+        return SvgSlideArtifact(project_id=project.id, version=1, pages=pages)
 
     def _tone_from_style(self, style_pref: str) -> str:
         mapping = {
@@ -304,11 +678,450 @@ class ProjectService:
             results.append(cleaned)
         return results[:8]
 
+    def _dedupe_strings(self, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(value.strip() for value in values if value and value.strip()))
+
+    def _tokenize(self, text: str) -> list[str]:
+        return [
+            token
+            for token in self._dedupe_strings(
+                re.split(r"[\s，,。；;：:、()（）/]+", text)
+            )
+            if len(token) >= 2
+        ]
+
+    def _select_related_topics(
+        self,
+        slide: OutlineSlide,
+        topics: list[ResearchTopic],
+    ) -> list[ResearchTopic]:
+        if not topics:
+            return []
+
+        tokens = self._tokenize(f"{slide.title} {slide.key_message} {slide.section}")
+        scored = sorted(
+            (
+                (
+                    sum(
+                        1
+                        for token in tokens
+                        if token in f"{topic.name} {topic.summary} {' '.join(topic.facts)}"
+                    ),
+                    index,
+                    topic,
+                )
+                for index, topic in enumerate(topics)
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        if scored[0][0] == 0:
+            return [topics[(slide.order_no - 1) % len(topics)]]
+        return [topic for score, _, topic in scored if score > 0][:2]
+
     def _clip_title(self, text: str, fallback: str) -> str:
         compact = re.sub(r"\s+", " ", text).strip(" :-：")
         if not compact:
             return fallback
         return compact[:22]
+
+    def _target_slide_count(self, project: ProjectResponse) -> int:
+        return min(max(project.config.page_limit, 4), 16)
+
+    def _derive_title_from_intake(
+        self,
+        prompt: str,
+        uploads: list[tuple[str, bytes]],
+    ) -> str:
+        if uploads:
+            stem = Path(uploads[0][0]).stem.strip()
+            if stem:
+                return stem[:48]
+        first_line = prompt.splitlines()[0].strip()
+        if first_line:
+            return first_line[:48]
+        return "DeckFlow 项目"
+
+    def _parse_project_config(self, prompt: str):
+        from ppt_agent.schemas.project import ProjectConfigPayload
+
+        page_match = re.search(r"(\d{1,2})\s*页", prompt)
+        page_limit = int(page_match.group(1)) if page_match else 14
+        style_pref = (
+            "商务"
+            if "商务" in prompt
+            else "简洁"
+            if "简洁" in prompt
+            else "科技"
+        )
+        scenario = (
+            "培训"
+            if "培训" in prompt
+            else "路演"
+            if "路演" in prompt
+            else "总结"
+            if "总结" in prompt
+            else "汇报"
+        )
+        audience = self._extract_audience(prompt)
+        return ProjectConfigPayload(
+            scenario=scenario,
+            audience=audience,
+            style_pref=style_pref,
+            page_limit=min(max(page_limit, 4), 20),
+            research_enabled=True,
+            narration_enabled=False,
+        )
+
+    def _extract_audience(self, prompt: str) -> str:
+        audience_match = re.search(r"适合([^，。；\n]{2,20})", prompt)
+        if audience_match:
+            return audience_match.group(1).strip()
+        if "老板" in prompt:
+            return "老板 / 管理层"
+        if "团队" in prompt:
+            return "团队成员 / 项目负责人"
+        return "产品负责人 / 决策层"
+
+    def _build_topic_from_intake(
+        self,
+        prompt: str,
+        source_texts: list[tuple[str, str]],
+        uploads: list[tuple[str, bytes]],
+    ) -> str:
+        sections = [prompt]
+        if uploads:
+            sections.append(
+                "附件：" + "、".join(filename for filename, _ in uploads)
+            )
+        for filename, text in source_texts:
+            sections.append(f"资料 {filename}：{self._truncate(text, 3600)}")
+        return "\n\n".join(sections)
+
+    def _compose_source_materials(
+        self,
+        uploads: list[tuple[str, bytes]],
+    ) -> list[tuple[str, str]]:
+        materials: list[tuple[str, str]] = []
+        for filename, content in uploads:
+            extracted = self._extract_text_from_upload(filename, content)
+            if extracted:
+                materials.append((filename, extracted))
+        return materials
+
+    def _extract_text_from_upload(self, filename: str, content: bytes) -> str:
+        suffix = Path(filename).suffix.lower()
+        if suffix in {".md", ".txt", ".text"}:
+            return self._decode_text_bytes(content)
+        if suffix == ".docx":
+            return self._extract_docx_text(content)
+        return ""
+
+    def _decode_text_bytes(self, content: bytes) -> str:
+        for encoding in ("utf-8", "utf-8-sig", "gb18030", "latin-1"):
+            try:
+                return content.decode(encoding).strip()
+            except UnicodeDecodeError:
+                continue
+        return ""
+
+    def _extract_docx_text(self, content: bytes) -> str:
+        try:
+            with zipfile.ZipFile(BytesIO(content)) as archive:
+                document_xml = archive.read("word/document.xml")
+        except (KeyError, zipfile.BadZipFile):
+            return ""
+
+        root = ElementTree.fromstring(document_xml)
+        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        texts = [
+            node.text.strip()
+            for node in root.findall(".//w:t", namespace)
+            if node.text and node.text.strip()
+        ]
+        return re.sub(r"\s+", " ", " ".join(texts)).strip()
+
+    def _load_json_object(self, raw_text: str) -> dict:
+        text = raw_text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+        return json.loads(text)
+
+    def _build_research_prompt(self, project: ProjectResponse) -> str:
+        return f"""
+请根据以下项目信息生成 research_pack。
+
+项目标题：{project.title}
+项目需求：{self._clean_topic_text(project.topic)}
+受众：{project.config.audience}
+场景：{project.config.scenario}
+风格：{project.config.style_pref}
+页数：{project.config.page_limit}
+
+输出 JSON，格式如下：
+{{
+  "summary": "string",
+  "topics": [
+    {{
+      "name": "string",
+      "summary": "string",
+      "cluster": "string",
+      "facts": ["string"],
+      "citations": [
+        {{"title": "string", "url": "string", "snippet": "string"}}
+      ]
+    }}
+  ]
+}}
+
+要求：
+1. 如果没有真实联网来源，citations 返回空数组。
+2. topics 数量控制在 3 到 6 个。
+3. facts 必须来自用户输入和项目配置，不要编造数字。
+""".strip()
+
+    def _build_brief_prompt(self, project: ProjectResponse, research: ResearchPack) -> str:
+        topic_lines = "\n".join(
+            f"- {topic.name}: {topic.summary}"
+            for topic in research.topics[:6]
+        )
+        return f"""
+请根据项目信息和 research 结果生成需求 brief。
+
+项目标题：{project.title}
+原始需求：{self._clean_topic_text(project.topic)}
+受众：{project.config.audience}
+场景：{project.config.scenario}
+风格：{project.config.style_pref}
+研究摘要：{research.summary}
+研究主题：
+{topic_lines}
+
+输出 JSON，格式如下：
+{{
+  "goal": "string",
+  "tone": "string",
+  "key_questions": [
+    {{
+      "id": "goal",
+      "prompt": "string",
+      "rationale": "string",
+      "answer": "string"
+    }}
+  ],
+  "must_include": ["string"],
+  "forbidden": ["string"]
+}}
+
+要求：
+1. key_questions 输出 3 个。
+2. 必须使用中文。
+3. 不要脱离原始需求扩写无依据结论。
+""".strip()
+
+    def _build_outline_prompt(self, project: ProjectResponse, brief: RequirementBrief) -> str:
+        question_lines = "\n".join(
+            f"- {question.prompt} / {question.answer}"
+            for question in brief.key_questions
+        )
+        return f"""
+请根据项目与 brief 生成 PPT 大纲。
+
+项目标题：{project.title}
+原始需求：{self._clean_topic_text(project.topic)}
+目标：{brief.goal}
+受众：{brief.audience}
+场景：{brief.scenario}
+语气：{brief.tone}
+必须包含：{", ".join(brief.must_include)}
+避免内容：{", ".join(brief.forbidden)}
+补充问答：
+{question_lines}
+目标页数：{self._target_slide_count(project)}
+
+输出 JSON，格式如下：
+{{
+  "slides": [
+    {{
+      "section": "string",
+      "title": "string",
+      "type": "cover|context|summary|content|conclusion|closing",
+      "key_message": "string"
+    }}
+  ]
+}}
+
+要求：
+1. slides 数量必须等于目标页数。
+2. 每页只保留一个核心结论。
+3. 标题简洁，避免模板化空话。
+""".strip()
+
+    def _build_slide_plan_prompt(
+        self,
+        project: ProjectResponse,
+        brief: RequirementBrief,
+        outline: OutlineArtifact,
+    ) -> str:
+        outline_lines = "\n".join(
+            f"- 第{slide.order_no}页 | {slide.title} | {slide.type} | {slide.key_message}"
+            for slide in outline.slides
+        )
+        return f"""
+请根据项目 brief 和 outline，输出逐页 slide_plan。
+
+项目标题：{project.title}
+受众：{brief.audience}
+场景：{brief.scenario}
+语气：{brief.tone}
+目标：{brief.goal}
+必须包含：{", ".join(brief.must_include)}
+避免内容：{", ".join(brief.forbidden)}
+
+大纲：
+{outline_lines}
+
+输出 JSON，格式如下：
+{{
+  "pages": [
+    {{
+      "title": "string",
+      "narrative_role": "string",
+      "core_message": "string",
+      "visual_focus": "string",
+      "suggested_layout": "string",
+      "design_notes": ["string"],
+      "blocks": [
+        {{
+          "block_id": "string",
+          "kind": "string",
+          "title": "string",
+          "content": "string",
+          "words_budget": 40,
+          "emphasis": "high|medium|low"
+        }}
+      ]
+    }}
+  ]
+}}
+
+要求：
+1. pages 数量必须与大纲页数完全一致。
+2. 每页 blocks 数量 3 到 5 个。
+3. 设计说明要能直接服务于后续 SVG 生成。
+4. 使用中文。
+""".strip()
+
+    def _build_svg_prompt(
+        self,
+        project: ProjectResponse,
+        slide_plan: SlidePlanArtifact,
+    ) -> str:
+        page_lines = "\n".join(
+            f"- 第{page.order_no}页 | {page.title} | {page.core_message} | 布局={page.suggested_layout}"
+            for page in slide_plan.pages
+        )
+        return f"""
+请根据 slide_plan 为每一页生成整页 SVG。
+
+项目标题：{project.title}
+受众：{project.config.audience}
+场景：{project.config.scenario}
+风格：{project.config.style_pref}
+
+页面策划：
+{page_lines}
+
+输出 JSON，格式如下：
+{{
+  "pages": [
+    {{
+      "title": "string",
+      "svg": "<svg ...>...</svg>"
+    }}
+  ]
+}}
+
+要求：
+1. 每页 svg 都必须是完整合法的 SVG 字符串。
+2. 画布统一使用 viewBox="0 0 1280 720"。
+3. 风格偏向简洁、结构化、适合企业汇报。
+4. pages 数量必须与 slide_plan 一致。
+""".strip()
+
+    def _map_narrative_role(self, slide_type: str) -> str:
+        mapping = {
+            "cover": "开场建立主题",
+            "context": "说明背景与问题",
+            "summary": "提炼关键信息",
+            "content": "展开核心论点",
+            "conclusion": "收束核心判断",
+            "closing": "给出下一步建议",
+        }
+        return mapping.get(slide_type, "展开核心内容")
+
+    def _infer_visual_focus(self, slide: OutlineSlide) -> str:
+        mapping = {
+            "cover": "标题与副标题",
+            "context": "背景信息与问题定义",
+            "summary": "一屏总结与重点摘录",
+            "content": "单个核心结论及支撑块",
+            "conclusion": "结论卡片与判断语句",
+            "closing": "行动建议与落地步骤",
+        }
+        return mapping.get(slide.type, "核心结论卡片")
+
+    def _infer_layout(self, slide: OutlineSlide) -> str:
+        mapping = {
+            "cover": "标题居中 + 副标题 + 轻背景装饰",
+            "context": "左标题右说明的双栏布局",
+            "summary": "顶部标题 + 下方 2x2 信息卡片",
+            "content": "顶部标题 + 主卡片 + 辅助说明卡片",
+            "conclusion": "大结论卡片 + supporting bullets",
+            "closing": "步骤卡片 + CTA 区域",
+        }
+        return mapping.get(slide.type, "顶部标题 + 内容卡片网格")
+
+    def _render_svg_page(self, project: ProjectResponse, page: SlidePlanPage) -> str:
+        blocks = page.blocks[:4]
+        rendered_blocks: list[str] = []
+        positions = [
+            (70, 190, 540, 190),
+            (670, 190, 540, 190),
+            (70, 410, 540, 190),
+            (670, 410, 540, 190),
+        ]
+        for block, (x, y, width, height) in zip(blocks, positions, strict=False):
+            rendered_blocks.append(
+                f"""
+                <g>
+                  <rect x="{x}" y="{y}" width="{width}" height="{height}" rx="26" fill="#FFFFFF" stroke="#D8DFEB"/>
+                  <text x="{x + 28}" y="{y + 42}" fill="#1F293D" font-size="24" font-weight="700">{escape(block.title)}</text>
+                  <text x="{x + 28}" y="{y + 82}" fill="#6F7F9A" font-size="18">{escape(self._truncate(block.content, 88))}</text>
+                  <text x="{x + 28}" y="{y + height - 24}" fill="#2D6CF6" font-size="16">{escape(block.kind)} · {escape(block.emphasis)}</text>
+                </g>
+                """.strip()
+            )
+
+        return f"""
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <rect width="1280" height="720" fill="#EEF3FB"/>
+  <rect x="34" y="34" width="1212" height="652" rx="34" fill="#F8FAFD" stroke="#D8DFEB"/>
+  <rect x="58" y="58" width="1164" height="604" rx="30" fill="#FFFFFF"/>
+  <rect x="92" y="94" width="6" height="60" rx="3" fill="#2D6CF6"/>
+  <text x="116" y="126" fill="#1F293D" font-size="34" font-weight="700">{escape(page.title)}</text>
+  <text x="116" y="162" fill="#7D8AA5" font-size="18">{escape(page.core_message)}</text>
+  <text x="1080" y="126" fill="#97A5BF" font-size="16">Page {page.order_no:02d}</text>
+  <text x="1080" y="154" fill="#97A5BF" font-size="14">{escape(project.config.style_pref)} / {escape(page.suggested_layout)}</text>
+  {"".join(rendered_blocks)}
+</svg>
+        """.strip()
+
+    def _truncate(self, text: str, limit: int) -> str:
+        clean = re.sub(r"\s+", " ", text).strip()
+        if len(clean) <= limit:
+            return clean
+        return f"{clean[: limit - 1]}…"
 
 
 def research_summary_from_brief(brief: RequirementBrief) -> str:

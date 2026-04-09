@@ -8,7 +8,12 @@ import type {
   Project,
   RequirementBrief,
   ResearchPack,
-  ResearchTopic,
+  SearchArtifact,
+  SearchPage,
+  SlidePlanArtifact,
+  SlidePlanPage,
+  SvgSlideArtifact,
+  SvgSlidePage,
 } from "./types";
 
 type HealthState =
@@ -25,22 +30,18 @@ type WorkspaceState = {
   brief: RequirementBrief | null;
   research: ResearchPack | null;
   outline: OutlineArtifact | null;
+  searchPages: SearchArtifact | null;
+  slidePlan: SlidePlanArtifact | null;
+  svgArtifact: SvgSlideArtifact | null;
   selectedSlideId: string | null;
   isBusy: boolean;
   error: string | null;
 };
 
-type SlideContext = {
+type SlideReference = {
+  slide_id: string;
+  order_no: number;
   title: string;
-  pageNo: number;
-  section: string;
-  type: string;
-  keyMessage: string;
-  audience: string;
-  scenario: string;
-  style: string;
-  facts: string[];
-  citations: Array<{ title: string; url: string; snippet: string }>;
 };
 
 const DEFAULT_TITLE = "全链路 LLMOps：覆盖开发、调试至监控的生命周期";
@@ -63,6 +64,9 @@ export function App() {
     brief: null,
     research: null,
     outline: null,
+    searchPages: null,
+    slidePlan: null,
+    svgArtifact: null,
     selectedSlideId: null,
     isBusy: false,
     error: null,
@@ -83,22 +87,79 @@ export function App() {
     [workspace.projects, workspace.selectedProjectId]
   );
 
-  const selectedSlide = useMemo(() => {
-    const slides = workspace.outline?.slides ?? [];
-    return (
-      slides.find((slide) => slide.slide_id === workspace.selectedSlideId) ??
-      slides[0] ??
-      null
-    );
-  }, [workspace.outline, workspace.selectedSlideId]);
+  const orderedSlides = useMemo(
+    () =>
+      workspace.outline?.slides.map((slide) => ({
+        slide_id: slide.slide_id,
+        order_no: slide.order_no,
+        title: slide.title,
+      })) ??
+      workspace.searchPages?.pages.map((page) => ({
+        slide_id: page.slide_id,
+        order_no: page.order_no,
+        title: page.title,
+      })) ??
+      workspace.slidePlan?.pages.map((page) => ({
+        slide_id: page.slide_id,
+        order_no: page.order_no,
+        title: page.title,
+      })) ??
+      workspace.svgArtifact?.pages.map((page) => ({
+        slide_id: page.slide_id,
+        order_no: page.order_no,
+        title: page.title,
+      })) ??
+      [],
+    [workspace.outline, workspace.searchPages, workspace.slidePlan, workspace.svgArtifact]
+  );
 
-  const slideContext = useMemo(
-    () => buildSlideContext(selectedProject, selectedSlide, workspace.brief, workspace.research),
-    [selectedProject, selectedSlide, workspace.brief, workspace.research]
+  const selectedSlideId = useMemo(
+    () => workspace.selectedSlideId ?? orderedSlides[0]?.slide_id ?? null,
+    [workspace.selectedSlideId, orderedSlides]
+  );
+
+  const selectedOutlineSlide = useMemo(
+    () =>
+      workspace.outline?.slides.find((slide) => slide.slide_id === selectedSlideId) ??
+      workspace.outline?.slides[0] ??
+      null,
+    [workspace.outline, selectedSlideId]
+  );
+
+  const selectedSearchPage = useMemo(
+    () =>
+      workspace.searchPages?.pages.find((page) => page.slide_id === selectedSlideId) ??
+      workspace.searchPages?.pages[0] ??
+      null,
+    [workspace.searchPages, selectedSlideId]
+  );
+
+  const selectedPlanPage = useMemo(
+    () =>
+      workspace.slidePlan?.pages.find((page) => page.slide_id === selectedSlideId) ??
+      workspace.slidePlan?.pages[0] ??
+      null,
+    [workspace.slidePlan, selectedSlideId]
+  );
+
+  const selectedSvgPage = useMemo(
+    () =>
+      workspace.svgArtifact?.pages.find((page) => page.slide_id === selectedSlideId) ??
+      workspace.svgArtifact?.pages[0] ??
+      null,
+    [workspace.svgArtifact, selectedSlideId]
   );
 
   const visibleSlideCount =
-    workspace.outline?.slides.length ?? selectedProject?.config.page_limit ?? 0;
+    orderedSlides.length || selectedProject?.config.page_limit || 0;
+
+  const selectedDisplayTitle =
+    selectedSvgPage?.title ??
+    selectedPlanPage?.title ??
+    selectedSearchPage?.title ??
+    selectedOutlineSlide?.title ??
+    selectedProject?.title ??
+    DEFAULT_TITLE;
 
   useEffect(() => {
     void bootstrap();
@@ -145,9 +206,24 @@ export function App() {
 
     try {
       const project = await api.getProject(projectId);
-      const brief = await api.getBrief(projectId).catch(() => api.generateBrief(projectId));
-      const research = await api.getResearch(projectId).catch(() => null as ResearchPack | null);
-      const outline = await api.getOutline(projectId).catch(() => null as OutlineArtifact | null);
+      const research = await api.getResearch(projectId).catch(() =>
+        api.runResearch(projectId)
+      );
+      const brief = await api.getBrief(projectId).catch(() =>
+        api.generateBrief(projectId)
+      );
+      const outline = await api.getOutline(projectId).catch(() =>
+        api.generateOutline(projectId)
+      );
+      const searchPages = await api.getSearchPages(projectId).catch(() =>
+        api.generateSearchPages(projectId)
+      );
+      const slidePlan = await api.getSlidePlan(projectId).catch(
+        () => null as SlidePlanArtifact | null
+      );
+      const svgArtifact = await api.getSvg(projectId).catch(
+        () => null as SvgSlideArtifact | null
+      );
 
       startTransition(() => {
         setWorkspace((current) => ({
@@ -159,7 +235,14 @@ export function App() {
           brief,
           research,
           outline,
-          selectedSlideId: outline?.slides[0]?.slide_id ?? null,
+          searchPages,
+          slidePlan,
+          svgArtifact,
+          selectedSlideId:
+            current.selectedSlideId ??
+            outline.slides[0]?.slide_id ??
+            searchPages.pages[0]?.slide_id ??
+            null,
           isBusy: false,
           error: null,
         }));
@@ -185,7 +268,7 @@ export function App() {
     setWorkspace((current) => ({ ...current, isBusy: true, error: null }));
 
     try {
-      const project = await api.createProject(parsePrompt(composer, attachments));
+      const project = await api.intakeProject(composer, attachments);
 
       startTransition(() => {
         setWorkspace((current) => ({
@@ -195,6 +278,9 @@ export function App() {
           brief: null,
           research: null,
           outline: null,
+          searchPages: null,
+          slidePlan: null,
+          svgArtifact: null,
           selectedSlideId: null,
           isBusy: false,
           error: null,
@@ -217,17 +303,7 @@ export function App() {
     }
   }
 
-  async function handleEnsureStage(nextStage: StageView) {
-    if (nextStage !== "search" && !workspace.outline && workspace.selectedProjectId) {
-      await handleGenerateOutline();
-    }
-
-    startTransition(() => {
-      setStage(nextStage);
-    });
-  }
-
-  async function handleGenerateOutline() {
+  async function ensureStageArtifacts(nextStage: StageView) {
     if (!workspace.selectedProjectId) {
       return;
     }
@@ -235,19 +311,63 @@ export function App() {
     setWorkspace((current) => ({ ...current, isBusy: true, error: null }));
 
     try {
-      const outline = await api.generateOutline(workspace.selectedProjectId);
+      const projectId = workspace.selectedProjectId;
+      const research = workspace.research ?? (await api.getResearch(projectId).catch(() =>
+        api.runResearch(projectId)
+      ));
+      const brief = workspace.brief ?? (await api.getBrief(projectId).catch(() =>
+        api.generateBrief(projectId)
+      ));
+      const outline = workspace.outline ?? (await api.getOutline(projectId).catch(() =>
+        api.generateOutline(projectId)
+      ));
+      const searchPages =
+        workspace.searchPages ??
+        (await api.getSearchPages(projectId).catch(() =>
+          api.generateSearchPages(projectId)
+        ));
+
+      let slidePlan = workspace.slidePlan;
+      let svgArtifact = workspace.svgArtifact;
+
+      if (nextStage === "draft" || nextStage === "design") {
+        slidePlan =
+          slidePlan ??
+          (await api.getSlidePlan(projectId).catch(() =>
+            api.generateSlidePlan(projectId)
+          ));
+      }
+
+      if (nextStage === "design") {
+        svgArtifact =
+          svgArtifact ??
+          (await api.getSvg(projectId).catch(() =>
+            api.generateSvg(projectId)
+          ));
+      }
+
       startTransition(() => {
         setWorkspace((current) => ({
           ...current,
+          brief,
+          research,
           outline,
-          selectedSlideId: outline.slides[0]?.slide_id ?? null,
+          searchPages,
+          slidePlan,
+          svgArtifact,
+          selectedSlideId:
+            current.selectedSlideId ??
+            outline.slides[0]?.slide_id ??
+            searchPages.pages[0]?.slide_id ??
+            null,
           isBusy: false,
           error: null,
         }));
+        setStage(nextStage);
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to generate outline.";
+        error instanceof Error ? error.message : "Failed to prepare stage.";
       startTransition(() => {
         setWorkspace((current) => ({
           ...current,
@@ -269,26 +389,35 @@ export function App() {
       targetSlideId
     );
 
-    startTransition(() => {
-      setWorkspace((current) => ({
-        ...current,
-        outline: current.outline ? { ...current.outline, slides } : current.outline,
-      }));
-    });
-
     try {
+      setWorkspace((current) => ({ ...current, isBusy: true, error: null }));
       const outline = await api.reorderOutline(
         workspace.selectedProjectId,
         slides.map((slide) => slide.slide_id)
       );
+      const searchPages = await api.generateSearchPages(workspace.selectedProjectId);
       startTransition(() => {
-        setWorkspace((current) => ({ ...current, outline }));
+        setWorkspace((current) => ({
+          ...current,
+          outline,
+          searchPages,
+          slidePlan: null,
+          svgArtifact: null,
+          selectedSlideId: targetSlideId,
+          isBusy: false,
+          error: null,
+        }));
+        setStage("search");
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to reorder outline.";
       startTransition(() => {
-        setWorkspace((current) => ({ ...current, error: message }));
+        setWorkspace((current) => ({
+          ...current,
+          isBusy: false,
+          error: message,
+        }));
       });
     } finally {
       setDraggedSlideId(null);
@@ -307,7 +436,9 @@ export function App() {
       <div className="intake-shell">
         <section className="intake-panel">
           <div className="intake-brand">DeckFlow</div>
-          <div className="intake-caption">上传文本资料，然后用一句话输入你的所有要求。</div>
+          <div className="intake-caption">
+            上传文本资料，然后用一句话输入你的所有要求。
+          </div>
 
           <div className="intake-composer">
             <textarea
@@ -392,7 +523,7 @@ export function App() {
               <button
                 className={`stage-tab ${stage === item ? "stage-tab-active" : ""}`}
                 key={item}
-                onClick={() => void handleEnsureStage(item)}
+                onClick={() => void ensureStageArtifacts(item)}
                 type="button"
               >
                 {stageLabels[item]}
@@ -406,62 +537,74 @@ export function App() {
           </div>
 
           <div className="slide-thumbnails">
-            {(workspace.outline?.slides ?? []).map((slide) => {
-              const context = buildSlideContext(
-                selectedProject,
-                slide,
-                workspace.brief,
-                workspace.research
-              );
-
-              return (
-                <button
-                  className={`slide-thumb ${
-                    slide.slide_id === selectedSlide?.slide_id ? "slide-thumb-active" : ""
-                  }`}
-                  draggable
-                  key={slide.slide_id}
-                  onClick={() => {
-                    startTransition(() => {
-                      setWorkspace((current) => ({
-                        ...current,
-                        selectedSlideId: slide.slide_id,
-                      }));
-                    });
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDragStart={() => setDraggedSlideId(slide.slide_id)}
-                  onDrop={() => void handleDrop(slide.slide_id)}
-                  type="button"
-                >
-                  <span className="slide-thumb-index">{slide.order_no}</span>
-                  <StageThumbnail stage={stage} context={context} />
-                </button>
-              );
-            })}
+            {orderedSlides.map((slide) => (
+              <button
+                className={`slide-thumb ${
+                  slide.slide_id === selectedSlideId ? "slide-thumb-active" : ""
+                }`}
+                draggable={Boolean(workspace.outline)}
+                key={slide.slide_id}
+                onClick={() => {
+                  startTransition(() => {
+                    setWorkspace((current) => ({
+                      ...current,
+                      selectedSlideId: slide.slide_id,
+                    }));
+                  });
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragStart={() => setDraggedSlideId(slide.slide_id)}
+                onDrop={() => void handleDrop(slide.slide_id)}
+                type="button"
+              >
+                <span className="slide-thumb-index">{slide.order_no}</span>
+                <StageThumbnail
+                  draftPage={workspace.slidePlan?.pages.find(
+                    (page) => page.slide_id === slide.slide_id
+                  )}
+                  outlineSlide={workspace.outline?.slides.find(
+                    (item) => item.slide_id === slide.slide_id
+                  )}
+                  searchPage={workspace.searchPages?.pages.find(
+                    (page) => page.slide_id === slide.slide_id
+                  )}
+                  stage={stage}
+                  svgPage={workspace.svgArtifact?.pages.find(
+                    (page) => page.slide_id === slide.slide_id
+                  )}
+                  title={slide.title}
+                />
+              </button>
+            ))}
           </div>
         </aside>
 
         <main className="editor-main">
           <section className="workspace-layout">
             <div className="workspace-panel workspace-panel-content">
-              {stage === "search" ? <SearchWorkspace context={slideContext} /> : null}
-              {stage === "draft" ? <DraftWorkspace context={slideContext} /> : null}
-              {stage === "design" ? <DesignWorkspace context={slideContext} /> : null}
+              {stage === "search" ? (
+                <SearchWorkspace page={selectedSearchPage} research={workspace.research} />
+              ) : null}
+              {stage === "draft" ? (
+                <DraftWorkspace page={selectedPlanPage} brief={workspace.brief} />
+              ) : null}
+              {stage === "design" ? (
+                <DesignWorkspace page={selectedSvgPage} planPage={selectedPlanPage} />
+              ) : null}
             </div>
 
             <div className="workspace-panel workspace-panel-preview">
               <div className="preview-header">
                 <div>
                   <span>当前页面</span>
-                  <strong>{slideContext.title}</strong>
+                  <strong>{selectedDisplayTitle}</strong>
                 </div>
                 <div className="status-chip">{stageLabels[stage]}</div>
               </div>
 
-              {stage === "search" ? <SearchPreview context={slideContext} /> : null}
-              {stage === "draft" ? <SlideCanvas context={slideContext} polished={false} /> : null}
-              {stage === "design" ? <SlideCanvas context={slideContext} polished /> : null}
+              {stage === "search" ? <SearchPreview page={selectedSearchPage} /> : null}
+              {stage === "draft" ? <DraftPreview page={selectedPlanPage} /> : null}
+              {stage === "design" ? <SvgPreview page={selectedSvgPage} /> : null}
             </div>
           </section>
 
@@ -472,40 +615,56 @@ export function App() {
   );
 }
 
-function SearchWorkspace({ context }: { context: SlideContext }) {
+function SearchWorkspace({
+  page,
+  research,
+}: {
+  page: SearchPage | null;
+  research: ResearchPack | null;
+}) {
+  if (!page) {
+    return <EmptyWorkspace title="搜索结果" description="等待后端生成 research 和搜索页内容。" />;
+  }
+
   return (
     <>
       <div className="workspace-section-heading">
         <span>搜索结果</span>
-        <strong>{`第 ${context.pageNo} 页研究内容`}</strong>
+        <strong>{`第 ${page.order_no} 页研究内容`}</strong>
       </div>
 
       <div className="workspace-card workspace-card-primary">
         <div className="workspace-meta-row">
           <span className="eyebrow">页面主题</span>
-          <span className="status-chip status-chip-muted">{context.section}</span>
+          <span className="status-chip status-chip-muted">{page.section}</span>
         </div>
-        <h3>{context.title}</h3>
-        <p>{context.keyMessage}</p>
+        <h3>{page.title}</h3>
+        <p>{page.summary}</p>
       </div>
 
-      <div className="workspace-card-list">
-        <article className="workspace-card">
-          <div className="workspace-meta-row">
-            <strong>已解析事实</strong>
-            <span className="topic-pill">{context.facts.length} 条</span>
-          </div>
-          <ul className="fact-list">
-            {context.facts.map((fact) => (
-              <li key={fact}>{fact}</li>
-            ))}
-          </ul>
-        </article>
+      <div className="workspace-card">
+        <div className="workspace-meta-row">
+          <strong>页面结论</strong>
+          <span className="topic-pill">{page.facts.length} 条事实</span>
+        </div>
+        <p>{page.key_message}</p>
+      </div>
+
+      <div className="workspace-card">
+        <div className="workspace-meta-row">
+          <strong>搜索摘要</strong>
+          <span className="topic-pill">{research?.topics.length ?? 0} 个主题簇</span>
+        </div>
+        <ul className="fact-list">
+          {page.facts.map((fact) => (
+            <li key={fact}>{fact}</li>
+          ))}
+        </ul>
       </div>
 
       <div className="workspace-card-list citations-grid">
-        {context.citations.length ? (
-          context.citations.map((citation) => (
+        {page.citations.length ? (
+          page.citations.map((citation) => (
             <a
               className="workspace-card citation-card"
               href={citation.url}
@@ -522,7 +681,7 @@ function SearchWorkspace({ context }: { context: SlideContext }) {
         ) : (
           <article className="workspace-card">
             <strong>暂无外部引用</strong>
-            <p>当前页面只展示来自后端真实 research 数据。外部联网检索尚未接入时，这里不会伪造来源。</p>
+            <p>当前项目 research 尚未接入联网结果时，这里只展示真实 research artifact 的事实内容。</p>
           </article>
         )}
       </div>
@@ -530,90 +689,117 @@ function SearchWorkspace({ context }: { context: SlideContext }) {
   );
 }
 
-function DraftWorkspace({ context }: { context: SlideContext }) {
+function DraftWorkspace({
+  page,
+  brief,
+}: {
+  page: SlidePlanPage | null;
+  brief: RequirementBrief | null;
+}) {
+  if (!page) {
+    return <EmptyWorkspace title="初稿" description="等待后端生成 slide_plan。" />;
+  }
+
   return (
     <>
       <div className="workspace-section-heading">
         <span>初稿内容</span>
-        <strong>{context.title}</strong>
+        <strong>{page.title}</strong>
       </div>
 
       <div className="workspace-card workspace-card-primary">
         <div className="workspace-meta-row">
           <strong>核心表达</strong>
-          <span className="topic-pill">{context.type}</span>
+          <span className="topic-pill">{page.narrative_role}</span>
         </div>
-        <p>{context.keyMessage}</p>
+        <p>{page.core_message}</p>
+      </div>
+
+      <div className="workspace-card">
+        <div className="workspace-meta-row">
+          <strong>版式意图</strong>
+          <span className="topic-pill">{page.suggested_layout}</span>
+        </div>
+        <ul className="fact-list">
+          <li>{`视觉重心：${page.visual_focus}`}</li>
+          {brief ? <li>{`语气：${brief.tone}`}</li> : null}
+          {page.design_notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
       </div>
 
       <div className="workspace-card-list">
-        <article className="workspace-card">
-          <div className="workspace-meta-row">
-            <strong>页面结构</strong>
-            <span className="topic-pill">{context.section}</span>
-          </div>
-          <ul className="fact-list">
-            <li>{`受众：${context.audience}`}</li>
-            <li>{`场景：${context.scenario}`}</li>
-            <li>{`风格：${context.style}`}</li>
-          </ul>
-        </article>
-
-        <article className="workspace-card">
-          <div className="workspace-meta-row">
-            <strong>支撑信息</strong>
-            <span className="topic-pill">{context.facts.length} 条</span>
-          </div>
-          <ul className="fact-list">
-            {context.facts.slice(0, 4).map((fact) => (
-              <li key={fact}>{fact}</li>
-            ))}
-          </ul>
-        </article>
+        {page.blocks.map((block) => (
+          <article className="workspace-card" key={block.block_id}>
+            <div className="workspace-meta-row">
+              <strong>{block.title}</strong>
+              <span className="topic-pill">{`${block.kind} / ${block.emphasis}`}</span>
+            </div>
+            <p>{block.content}</p>
+          </article>
+        ))}
       </div>
     </>
   );
 }
 
-function DesignWorkspace({ context }: { context: SlideContext }) {
+function DesignWorkspace({
+  page,
+  planPage,
+}: {
+  page: SvgSlidePage | null;
+  planPage: SlidePlanPage | null;
+}) {
+  if (!page) {
+    return <EmptyWorkspace title="设计稿" description="等待后端生成 svg 设计稿。" />;
+  }
+
   return (
     <>
       <div className="workspace-section-heading">
         <span>设计稿</span>
-        <strong>{context.title}</strong>
+        <strong>{page.title}</strong>
       </div>
 
       <div className="workspace-card workspace-card-primary">
         <div className="workspace-meta-row">
-          <strong>版式指令</strong>
-          <span className="topic-pill">2 × 2 Grid</span>
+          <strong>渲染结果</strong>
+          <span className="topic-pill">{`SVG ${page.svg.length} chars`}</span>
         </div>
-        <p>{`当前设计稿继续使用第 ${context.pageNo} 页的真实标题、关键信息和 research 事实，不再注入固定示例文案。`}</p>
+        <p>右侧直接展示后端返回的完整 SVG 设计稿，不再使用前端拼出来的占位页面。</p>
       </div>
 
-      <div className="workspace-card-list">
-        <article className="workspace-card">
-          <strong>设计约束</strong>
+      {planPage ? (
+        <div className="workspace-card">
+          <div className="workspace-meta-row">
+            <strong>设计输入</strong>
+            <span className="topic-pill">{planPage.suggested_layout}</span>
+          </div>
           <ul className="fact-list">
-            <li>{`页面类型：${context.type}`}</li>
-            <li>{`视觉风格：${context.style}`}</li>
-            <li>{`引用数量：${context.citations.length}`}</li>
+            <li>{`叙事角色：${planPage.narrative_role}`}</li>
+            <li>{`视觉重心：${planPage.visual_focus}`}</li>
+            <li>{`区块数量：${planPage.blocks.length}`}</li>
           </ul>
-        </article>
-      </div>
+        </div>
+      ) : null}
     </>
   );
 }
 
-function SearchPreview({ context }: { context: SlideContext }) {
+function SearchPreview({ page }: { page: SearchPage | null }) {
+  if (!page) {
+    return <EmptyPreview description="搜索阶段会在这里展示当前页的 research 结果。" />;
+  }
+
   return (
     <div className="research-preview-card">
       <div className="research-preview-frame">
-        <div className="research-preview-page-no">{context.pageNo}</div>
-        <div className="research-preview-title">{context.title}</div>
-        <p className="research-preview-copy">{context.keyMessage}</p>
+        <div className="research-preview-page-no">{page.order_no}</div>
+        <div className="research-preview-title">{page.title}</div>
+        <p className="research-preview-copy">{page.key_message}</p>
         <div className="research-preview-list">
-          {context.facts.slice(0, 4).map((fact) => (
+          {page.facts.map((fact) => (
             <div className="research-preview-fact" key={fact}>
               {fact}
             </div>
@@ -622,88 +808,60 @@ function SearchPreview({ context }: { context: SlideContext }) {
       </div>
 
       <div className="research-preview-footer">
-        <strong>{context.citations.length ? "已找到相关来源" : "暂无外部来源"}</strong>
-        <p>搜索阶段右侧展示的是当前选中页的 research 内容，而不是 PPT 成稿。</p>
+        <strong>{page.citations.length ? "已找到相关来源" : "暂无外部来源"}</strong>
+        <p>搜索阶段右侧只展示后端返回的当前页 research artifact。</p>
       </div>
     </div>
   );
 }
 
-function SlideCanvas({
-  context,
-  polished,
-}: {
-  context: SlideContext;
-  polished: boolean;
-}) {
+function DraftPreview({ page }: { page: SlidePlanPage | null }) {
+  if (!page) {
+    return <EmptyPreview description="初稿阶段会在这里展示 slide_plan 驱动的页面预览。" />;
+  }
+
   return (
-    <div className={`preview-canvas-frame ${polished ? "preview-canvas-frame-polished" : ""}`}>
+    <div className="preview-canvas-frame">
       <div className="artboard-wrapper">
         <div className="artboard">
           <div className="artboard-title">
             <span className="title-marker" />
             <div className="title-copy">
-              <h2>{context.title}</h2>
+              <h2>{page.title}</h2>
             </div>
-            <div className="title-meta">
-              {`Page ${context.pageNo.toString().padStart(2, "0")}`}
-            </div>
+            <div className="title-meta">{`Page ${page.order_no.toString().padStart(2, "0")}`}</div>
           </div>
 
           <div className="artboard-grid">
-            <section className="art-card">
-              <div className="art-card-head">
-                <h3>核心观点</h3>
-                <span className="blue-tag">{context.section}</span>
-              </div>
-              <p className="canvas-copy">{context.keyMessage}</p>
-              <div className="status-strip">{context.type}</div>
-            </section>
-
-            <section className="art-card">
-              <div className="art-card-head">
-                <h3>支撑要点</h3>
-                <span className="card-subtitle">Research Facts</span>
-              </div>
-              <ul className="bullet-list">
-                {context.facts.slice(0, 4).map((fact) => (
-                  <li key={fact}>{fact}</li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="art-card">
-              <div className="art-card-head">
-                <h3>页面结构</h3>
-              </div>
-              <div className="loop-layout">
-                <div className="loop-circle">{context.pageNo}</div>
-                <ol className="number-list">
-                  <li>{`受众：${context.audience}`}</li>
-                  <li>{`场景：${context.scenario}`}</li>
-                  <li>{`风格：${context.style}`}</li>
-                </ol>
-              </div>
-              <div className="status-strip status-strip-soft">{`本页类型：${context.type}`}</div>
-            </section>
-
-            <section className="art-card">
-              <div className="art-card-head">
-                <h3>引用来源</h3>
-                <span className="card-subtitle">Sources</span>
-              </div>
-              <div className="integrations-box integrations-box-sources">
-                {context.citations.length ? (
-                  context.citations.slice(0, 3).map((citation) => (
-                    <span key={citation.url}>{citation.title}</span>
-                  ))
-                ) : (
-                  <span>暂无真实外部引用</span>
-                )}
-              </div>
-            </section>
+            {page.blocks.slice(0, 4).map((block) => (
+              <section className="art-card" key={block.block_id}>
+                <div className="art-card-head">
+                  <h3>{block.title}</h3>
+                  <span className="blue-tag">{block.kind}</span>
+                </div>
+                <p className="canvas-copy">{block.content}</p>
+                <div className="status-strip">{block.emphasis}</div>
+              </section>
+            ))}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SvgPreview({ page }: { page: SvgSlidePage | null }) {
+  if (!page) {
+    return <EmptyPreview description="设计稿阶段会在这里展示后端返回的 SVG。" />;
+  }
+
+  return (
+    <div className="preview-canvas-frame preview-canvas-frame-polished">
+      <div className="svg-preview-stage">
+        <div
+          className="svg-preview-surface"
+          dangerouslySetInnerHTML={{ __html: page.svg }}
+        />
       </div>
     </div>
   );
@@ -711,155 +869,101 @@ function SlideCanvas({
 
 function StageThumbnail({
   stage,
-  context,
+  title,
+  outlineSlide,
+  searchPage,
+  draftPage,
+  svgPage,
 }: {
   stage: StageView;
-  context: SlideContext;
+  title: string;
+  outlineSlide: OutlineSlide | undefined;
+  searchPage: SearchPage | undefined;
+  draftPage: SlidePlanPage | undefined;
+  svgPage: SvgSlidePage | undefined;
 }) {
   return (
     <div className="slide-thumb-canvas">
-      <div className="slide-thumb-title">{context.title}</div>
+      <div className="slide-thumb-title">{title}</div>
 
       {stage === "search" ? (
-        <div className="slide-thumb-search">
-          <div className="slide-thumb-line" />
-          <div className="slide-thumb-line short" />
-          <div className="slide-thumb-grid">
-            <span />
-            <span />
+        searchPage ? (
+          <div className="slide-thumb-search">
+            <div className="slide-thumb-line" />
+            <div className="slide-thumb-line short" />
+            <div className="slide-thumb-grid">
+              <span>{`${searchPage.facts.length} 条事实`}</span>
+              <span>{`${searchPage.citations.length} 个来源`}</span>
+            </div>
           </div>
-        </div>
+        ) : (
+          <ThumbnailLoading />
+        )
       ) : null}
 
       {stage === "draft" ? (
-        <div className="slide-thumb-draft">
-          <div className="slide-thumb-line" />
-          <div className="slide-thumb-line short" />
-          <div className="slide-thumb-copy">{context.keyMessage}</div>
-        </div>
+        draftPage ? (
+          <div className="slide-thumb-draft">
+            <div className="slide-thumb-line" />
+            <div className="slide-thumb-line short" />
+            <div className="slide-thumb-copy">{draftPage.blocks[0]?.content ?? draftPage.core_message}</div>
+          </div>
+        ) : (
+          <ThumbnailLoading />
+        )
       ) : null}
 
       {stage === "design" ? (
-        <div className="slide-thumb-design">
-          <div className="slide-thumb-design-grid">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
-        </div>
+        svgPage ? (
+          <div
+            className="slide-thumb-design-live"
+            dangerouslySetInnerHTML={{ __html: svgPage.svg }}
+          />
+        ) : (
+          <ThumbnailLoading />
+        )
+      ) : null}
+
+      {!searchPage && !draftPage && !svgPage && outlineSlide ? (
+        <div className="slide-thumb-copy">{outlineSlide.key_message}</div>
       ) : null}
     </div>
   );
 }
 
-function buildSlideContext(
-  project: Project | null,
-  slide: OutlineSlide | null,
-  brief: RequirementBrief | null,
-  research: ResearchPack | null
-): SlideContext {
-  const relatedTopics = selectRelatedTopics(slide, research?.topics ?? []);
-  const facts = dedupeStrings(
-    [
-      slide?.key_message,
-      brief?.goal,
-      ...relatedTopics.flatMap((topic) => topic.facts),
-      project ? `受众：${project.config.audience}` : undefined,
-      project ? `场景：${project.config.scenario}` : undefined,
-      project ? `风格：${project.config.style_pref}` : undefined,
-    ].filter(Boolean) as string[]
-  ).slice(0, 6);
-
-  return {
-    title: slide?.title ?? project?.title ?? DEFAULT_TITLE,
-    pageNo: slide?.order_no ?? 1,
-    section: slide?.section ?? "未生成",
-    type: slide?.type ?? "draft",
-    keyMessage: slide?.key_message ?? brief?.goal ?? "尚未生成当前页面内容。",
-    audience: project?.config.audience ?? "未定义",
-    scenario: project?.config.scenario ?? "未定义",
-    style: project?.config.style_pref ?? "未定义",
-    facts,
-    citations: relatedTopics.flatMap((topic) => topic.citations).slice(0, 4),
-  };
-}
-
-function selectRelatedTopics(
-  slide: OutlineSlide | null,
-  topics: ResearchTopic[]
-): ResearchTopic[] {
-  if (!slide || !topics.length) {
-    return [];
-  }
-
-  const tokens = tokenize(`${slide.title} ${slide.key_message} ${slide.section}`);
-  const scored = topics
-    .map((topic, index) => ({
-      topic,
-      index,
-      score: tokens.reduce((sum, token) => {
-        const haystack = `${topic.name} ${topic.summary} ${topic.facts.join(" ")}`;
-        return sum + (haystack.includes(token) ? 1 : 0);
-      }, 0),
-    }))
-    .sort((left, right) => right.score - left.score || left.index - right.index);
-
-  if (scored[0]?.score === 0) {
-    return [topics[(slide.order_no - 1) % topics.length]];
-  }
-
-  return scored.filter((item) => item.score > 0).slice(0, 2).map((item) => item.topic);
-}
-
-function tokenize(text: string): string[] {
-  return Array.from(
-    new Set(
-      text
-        .split(/[\s，,。；;：:、()（）/]+/)
-        .map((part) => part.trim())
-        .filter((part) => part.length >= 2)
-    )
+function ThumbnailLoading() {
+  return (
+    <div className="slide-thumb-loading">
+      <div className="slide-thumb-line" />
+      <div className="slide-thumb-line short" />
+    </div>
   );
 }
 
-function dedupeStrings(values: string[]): string[] {
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+function EmptyWorkspace({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="workspace-card workspace-card-empty">
+      <strong>{title}</strong>
+      <p>{description}</p>
+    </div>
+  );
 }
 
-function parsePrompt(prompt: string, files: File[]) {
-  const pageMatch = prompt.match(/(\d{1,2})\s*页/);
-  const pageLimit = pageMatch ? Number(pageMatch[1]) : 14;
-  const stylePref = prompt.includes("商务")
-    ? "商务"
-    : prompt.includes("简洁")
-      ? "简洁"
-      : "科技";
-  const scenario = prompt.includes("培训")
-    ? "培训"
-    : prompt.includes("路演")
-      ? "路演"
-      : prompt.includes("总结")
-        ? "总结"
-        : "汇报";
-
-  const titleSeed =
-    files[0]?.name.replace(/\.[^.]+$/, "") ||
-    prompt.split(/[。\n]/)[0].trim() ||
-    DEFAULT_TITLE;
-
-  return {
-    title: titleSeed.slice(0, 48),
-    topic: `${prompt}${files.length ? `\n\n附件：${files.map((file) => file.name).join("、")}` : ""}`,
-    config: {
-      scenario,
-      audience: "产品负责人 / 决策层",
-      style_pref: stylePref,
-      page_limit: Math.min(Math.max(pageLimit, 4), 20),
-      research_enabled: true,
-      narration_enabled: false,
-    },
-  };
+function EmptyPreview({ description }: { description: string }) {
+  return (
+    <div className="preview-canvas-frame">
+      <div className="empty-preview">
+        <strong>等待生成</strong>
+        <p>{description}</p>
+      </div>
+    </div>
+  );
 }
 
 function reorderSlides(

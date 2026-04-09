@@ -82,10 +82,42 @@
 - 数据库最小落地
 - provider 抽象
 - OpenAI / Gemini 统一调用入口
+- intake 上传链路
+- `research / brief / outline / slide_plan / svg` 的统一 artifact 落盘
+- `search` 逐页 artifact
 
-还没有做的部分：
+## 4. 当前已完成
 
-- 真正的 prompt 模板分层
-- research / brief / outline 对模型的正式调用
-- provider 级重试、限流、fallback
+当前后端已经完成：
+
+- `projects`、`project_configs`、`artifact_records` 三张简表
+- 本地文件系统作为 artifact 主存储，数据库保存索引
+- `POST /api/projects/intake`，支持 multipart 上传
+- `txt / md / docx` 文本抽取
+- `research`
+- `brief`
+- `outline`
+- `search`
+- `slide_plan`
+- `svg`
+- OpenAI / Gemini provider 状态查询
+- OpenAI / Gemini 统一文本生成接口
+
+其中：
+
+- `research / brief / outline / slide_plan / svg` 都是“模型优先，规则回退”
+- `search` 基于已有 `research + outline` 生成逐页结果
+- `svg` 当前返回的是完整 SVG 字符串 artifact
+
+## 5. 当前未完成
+
+后端仍未完成的关键项：
+
+- research 的真实外部联网检索与知识库接入
+- 更细的 prompt 模板分层与版本管理
+- provider 级重试、限流、熔断、成本统计
+- workflow_runs、slide_jobs、review_reports、exports、model_calls 等后续表
 - 数据库 migration 脚本与 Alembic 版本管理
+- PDF / PPTX 导出服务
+- review engine 和自动修复
+- 单页级持久化编辑接口

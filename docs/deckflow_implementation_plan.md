@@ -518,6 +518,63 @@ storage/
 
 ## 11. 建议的近期执行顺序
 
+1. 打通 intake、research、outline、search、slide_plan、svg 的真实接口链路
+2. 让前端两页式工作流只消费后端 artifact，不再在 renderer 侧拼 mock 页面
+3. 接入真实外部搜索与知识源，提升 research_pack 的事实与引用质量
+4. 补单页编辑、单页重跑、导出与 review
+
+## 12. 当前已完成
+
+截至 2026-04-09，当前仓库已经完成以下内容：
+
+- 阶段 0 基本完成
+- FastAPI、Electron、React + Vite、preload 三层结构已稳定
+- 数据库最小模型已落地：`projects`、`project_configs`、`artifact_records`
+- OpenAI / Gemini 统一 Model Router 已接入
+- 项目创建、项目读取、项目删除、项目更新接口已具备
+- 第一页已改为真实 intake 接口：支持上传 `txt / md / docx`，由后端解析 prompt 和文件正文
+- research、brief、outline 已具备真实后端 artifact 和接口
+- search 阶段已具备真实逐页 artifact：前端不再拼 research mock 卡片
+- slide_plan 已具备真实 schema、service、API
+- svg 已具备真实 schema、service、API
+- 前端第二页的 `搜索 / 初稿 / 设计稿` 已只消费真实后端 artifact
+- 设计稿预览区已直接渲染后端返回的完整 SVG
+- 当前完整链路已验证可跑通：
+  `intake -> research -> brief -> outline -> search -> slide_plan -> svg`
+
+说明：
+
+- 当前“真实接口”指的是前后端之间不再依赖前端 mock 数据。
+- 模型调用仍然保留“模型优先，规则回退”的兜底逻辑，以避免 provider 未配置时主流程完全不可用。
+
+## 13. 当前未完成
+
+还没有完成、且仍属于主计划内的内容如下：
+
+- research 尚未真正接入外部联网搜索与知识库，当前 facts 主要来自用户输入和已上传资料
+- brief / outline / slide_plan / svg 虽已接模型接口，但还没有形成更细的 prompt 资产管理体系
+- 第一页还没有更细的 intake 参数回显与结构化编辑
+- outline 页面的“数字便利贴”强交互还不够深，当前主要是基础排序
+- 初稿阶段还没有真正的块级编辑、块顺序编辑、单页内容保存
+- 设计稿阶段还没有“单页重跑 svg”与“局部修复”
+- 还没有 review engine、review_report、自动修复
+- 还没有 PDF / SVG 正式导出链路
+- 还没有 PPTX 导出
+- 还没有真实缩略图生成流水线，当前缩略图仍以前端渲染预览为主
+- 还没有 workflow_runs、slide_jobs、exports、review_reports、model_calls 等后续表
+- 还没有 Alembic migration 管理
+- 还没有任务队列、失败恢复、成本统计、限流与重试
+
+## 14. 下一步优先顺序
+
+建议接下来严格按下面顺序继续：
+
+1. 接真实外部搜索 / 知识源，提升 `research_pack` 与 `search` 页质量
+2. 完成初稿编辑能力：标题、块内容、块顺序、单页保存
+3. 完成设计稿单页重跑与局部生成
+4. 补导出：先 SVG / PDF，再看 PPTX
+5. 补 review、自动修复和工程化能力
+
 如果按当前仓库状态继续推进，建议下一步严格按下面顺序执行：
 
 1. 初始化 FastAPI、数据库连接、Alembic 和健康检查

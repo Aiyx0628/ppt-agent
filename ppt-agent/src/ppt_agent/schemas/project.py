@@ -23,13 +23,13 @@ class ProjectConfigPayload(BaseModel):
 
 class ProjectCreateRequest(BaseModel):
     title: str = Field(min_length=3, max_length=120)
-    topic: str = Field(min_length=3, max_length=200)
+    topic: str = Field(min_length=3, max_length=20000)
     config: ProjectConfigPayload
 
 
 class ProjectUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=120)
-    topic: str | None = Field(default=None, min_length=3, max_length=200)
+    topic: str | None = Field(default=None, min_length=3, max_length=20000)
     config: ProjectConfigPayload | None = None
     status: ProjectStatus | None = None
 
