@@ -1,0 +1,14 @@
+[project]
+name = "ppt-agent"
+version = "0.1.0"
+description = "Backend service for ppt-agent."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[project.scripts]
+ppt-agent = "ppt_agent.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
