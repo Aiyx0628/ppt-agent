@@ -10,7 +10,7 @@ from ppt_agent.schemas.project import (
 )
 from ppt_agent.schemas.research import ResearchPack
 from ppt_agent.schemas.search import SearchArtifact
-from ppt_agent.schemas.slide_plan import SlidePlanArtifact
+from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanPage, SlidePlanPageUpdateRequest
 from ppt_agent.schemas.svg import SvgSlideArtifact
 from ppt_agent.services.project_service import ProjectNotFoundError, get_project_service
 
@@ -205,5 +205,21 @@ def get_svg(project_id: str) -> SvgSlideArtifact:
     service = get_project_service()
     try:
         return service.get_svg(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/{project_id}/slide-plan/pages/{slide_id}",
+    response_model=SlidePlanPage,
+)
+def update_slide_plan_page(
+    project_id: str,
+    slide_id: str,
+    payload: SlidePlanPageUpdateRequest,
+) -> SlidePlanPage:
+    service = get_project_service()
+    try:
+        return service.update_slide_plan_page(project_id, slide_id, payload)
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

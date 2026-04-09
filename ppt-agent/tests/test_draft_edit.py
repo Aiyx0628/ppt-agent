@@ -121,3 +121,39 @@ def test_update_empty_payload_changes_nothing(service: ProjectService, repositor
 
     assert updated.title == "封面"
     assert updated.blocks[0].content == "原始内容"
+
+
+def test_patch_slide_plan_page_route(client, repository):
+    # 通过 intake 创建项目
+    resp = client.post(
+        "/api/projects/intake",
+        data={"prompt": "测试项目，8页，科技风，团队汇报"},
+    )
+    assert resp.status_code == 201
+    project_id = resp.json()["id"]
+
+    # 注入 slide_plan artifact
+    seed_slide_plan(repository, project_id)
+
+    # 调用 PATCH
+    resp = client.patch(
+        f"/api/projects/{project_id}/slide-plan/pages/{project_id}_s1",
+        json={"title": "路由测试标题"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "路由测试标题"
+
+
+def test_patch_nonexistent_slide_returns_404(client, repository):
+    resp = client.post(
+        "/api/projects/intake",
+        data={"prompt": "测试项目，8页，科技风，团队汇报"},
+    )
+    assert resp.status_code == 201
+    project_id = resp.json()["id"]
+
+    resp = client.patch(
+        f"/api/projects/{project_id}/slide-plan/pages/nonexistent_slide",
+        json={"title": "不存在的页"},
+    )
+    assert resp.status_code == 404
