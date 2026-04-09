@@ -31,3 +31,11 @@ npm run dev
 - Root `.gitignore` manages shared ignore rules for Python, Node, and macOS artifacts
 - Backend source code lives under `ppt-agent/src/`
 - Desktop source code lives under `ppt-agent-desktop/src/`
+
+
+## 参考链接：
+
+
+```bash
+https://linux.do/t/topic/1782304
+```
