@@ -136,14 +136,6 @@ export function App() {
     [workspace.selectedSlideId, orderedSlides]
   );
 
-  const selectedOutlineSlide = useMemo(
-    () =>
-      workspace.outline?.slides.find((slide) => slide.slide_id === selectedSlideId) ??
-      workspace.outline?.slides[0] ??
-      null,
-    [workspace.outline, selectedSlideId]
-  );
-
   const selectedSearchPage = useMemo(
     () =>
       workspace.searchPages?.pages.find((page) => page.slide_id === selectedSlideId) ??
@@ -170,14 +162,6 @@ export function App() {
 
   const visibleSlideCount =
     orderedSlides.length || selectedProject?.config.page_limit || 0;
-
-  const selectedDisplayTitle =
-    selectedSvgPage?.title ??
-    selectedPlanPage?.title ??
-    selectedSearchPage?.title ??
-    selectedOutlineSlide?.title ??
-    selectedProject?.title ??
-    DEFAULT_TITLE;
 
   useEffect(() => {
     void bootstrap();
@@ -736,74 +720,43 @@ export function App() {
         </aside>
 
         <main className="editor-main">
-          <section className="workspace-layout">
-            <div className="workspace-panel workspace-panel-content">
-              {stage === "search" ? (
-                <SearchWorkspace page={selectedSearchPage} research={workspace.research} />
-              ) : null}
-              {stage === "draft" ? (
-                <DraftWorkspace
-                  page={selectedPlanPage}
-                  brief={workspace.brief}
-                  editState={workspace.draftEditState}
-                  isSaving={workspace.isSaving}
-                  onInitEdit={initDraftEdit}
-                  onEditChange={(patch) =>
-                    setWorkspace((current) => ({
-                      ...current,
-                      draftEditState: current.draftEditState
-                        ? { ...current.draftEditState, ...patch }
-                        : null,
-                    }))
-                  }
-                  onSave={() => void handleSaveDraftPage()}
-                />
-              ) : null}
-              {stage === "design" ? (
-                <DesignWorkspace
-                  page={selectedSvgPage}
-                  planPage={selectedPlanPage}
-                  isRegenerating={workspace.regeneratingSlideId === selectedSlideId}
-                  onRegenerate={() =>
-                    selectedSlideId
-                      ? void handleRegenerateSvgPage(selectedSlideId)
-                      : undefined
-                  }
-                  reviewPage={
-                    workspace.reviewArtifact?.pages.find(
-                      (p) => p.slide_id === selectedSlideId
-                    ) ?? null
-                  }
-                  isReviewing={workspace.isReviewing}
-                  onRunReview={() => void handleRunReview()}
-                />
-              ) : null}
-            </div>
-
-            <div className="workspace-panel workspace-panel-preview">
-              <div className="preview-header">
-                <div>
-                  <span>当前页面</span>
-                  <strong>{selectedDisplayTitle}</strong>
-                </div>
-                <div className="status-chip">{stageLabels[stage]}</div>
-              </div>
-
-              {stage === "search" ? <SearchPreview page={selectedSearchPage} /> : null}
-              {stage === "draft" ? (
-                <DraftPreview
-                  pages={workspace.slidePlan?.pages ?? []}
-                  selectedSlideId={selectedSlideId}
-                  onSelectSlide={(slideId) =>
-                    startTransition(() =>
-                      setWorkspace((current) => ({ ...current, selectedSlideId: slideId }))
-                    )
-                  }
-                />
-              ) : null}
-              {stage === "design" ? <SvgPreview page={selectedSvgPage} /> : null}
-            </div>
-          </section>
+          {stage === "search" ? (
+            <SearchWorkspace page={selectedSearchPage} />
+          ) : null}
+          {stage === "draft" ? (
+            <DraftWorkspace
+              page={selectedPlanPage}
+              brief={workspace.brief}
+              editState={workspace.draftEditState}
+              isSaving={workspace.isSaving}
+              onInitEdit={initDraftEdit}
+              onEditChange={(patch) =>
+                setWorkspace((current) => ({
+                  ...current,
+                  draftEditState: current.draftEditState
+                    ? { ...current.draftEditState, ...patch }
+                    : null,
+                }))
+              }
+              onSave={() => void handleSaveDraftPage()}
+            />
+          ) : null}
+          {stage === "design" ? (
+            <DesignWorkspace
+              page={selectedSvgPage}
+              isRegenerating={workspace.regeneratingSlideId === selectedSlideId}
+              onRegenerate={() =>
+                selectedSlideId ? void handleRegenerateSvgPage(selectedSlideId) : undefined
+              }
+              reviewPage={
+                workspace.reviewArtifact?.pages.find(
+                  (p) => p.slide_id === selectedSlideId
+                ) ?? null
+              }
+              isReviewing={workspace.isReviewing}
+              onRunReview={() => void handleRunReview()}
+            />
+          ) : null}
 
           {workspace.error ? <div className="error-banner">{workspace.error}</div> : null}
         </main>
@@ -814,75 +767,63 @@ export function App() {
 
 function SearchWorkspace({
   page,
-  research,
 }: {
   page: SearchPage | null;
-  research: ResearchPack | null;
 }) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
   if (!page) {
-    return <EmptyWorkspace title="搜索结果" description="等待后端生成 research 和搜索页内容。" />;
+    return (
+      <div className="search-layout">
+        <div className="citation-empty">等待后端生成搜索内容...</div>
+      </div>
+    );
+  }
+
+  const citations = page.citations;
+  const selected = citations[selectedIdx] ?? null;
+
+  if (citations.length === 0) {
+    return (
+      <div className="search-layout">
+        <div className="citation-empty">当前页暂无引用来源</div>
+      </div>
+    );
   }
 
   return (
-    <>
-      <div className="workspace-section-heading">
-        <span>搜索结果</span>
-        <strong>{`第 ${page.order_no} 页研究内容`}</strong>
+    <div className="search-layout">
+      <div className="citation-list">
+        {citations.map((citation, idx) => (
+          <button
+            key={citation.url}
+            className={`citation-list-item ${idx === selectedIdx ? "citation-list-item-active" : ""}`}
+            onClick={() => setSelectedIdx(idx)}
+            type="button"
+          >
+            <strong>{citation.title || citation.url}</strong>
+            <span>{citation.url}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="workspace-card workspace-card-primary">
-        <div className="workspace-meta-row">
-          <span className="eyebrow">页面主题</span>
-          <span className="status-chip status-chip-muted">{page.section}</span>
-        </div>
-        <h3>{page.title}</h3>
-        <p>{page.summary}</p>
-      </div>
-
-      <div className="workspace-card">
-        <div className="workspace-meta-row">
-          <strong>页面结论</strong>
-          <span className="topic-pill">{page.facts.length} 条事实</span>
-        </div>
-        <p>{page.key_message}</p>
-      </div>
-
-      <div className="workspace-card">
-        <div className="workspace-meta-row">
-          <strong>搜索摘要</strong>
-          <span className="topic-pill">{research?.topics.length ?? 0} 个主题簇</span>
-        </div>
-        <ul className="fact-list">
-          {page.facts.map((fact) => (
-            <li key={fact}>{fact}</li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="workspace-card-list citations-grid">
-        {page.citations.length ? (
-          page.citations.map((citation) => (
+      <div className="citation-detail">
+        {selected ? (
+          <>
+            <h3 className="citation-detail-title">{selected.title || "（无标题）"}</h3>
             <a
-              className="workspace-card citation-card"
-              href={citation.url}
-              key={citation.url}
+              className="citation-detail-url"
+              href={selected.url}
               rel="noreferrer"
               target="_blank"
             >
-              <div className="citation-tag">引用</div>
-              <strong>{citation.title}</strong>
-              <span>{citation.url}</span>
-              <p>{citation.snippet}</p>
+              {selected.url}
             </a>
-          ))
-        ) : (
-          <article className="workspace-card">
-            <strong>暂无外部引用</strong>
-            <p>当前项目 research 尚未接入联网结果时，这里只展示真实 research artifact 的事实内容。</p>
-          </article>
-        )}
+            <p className="citation-detail-snippet">{selected.snippet}</p>
+          </>
+        ) : null}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -914,7 +855,13 @@ function DraftWorkspace({
   onSave: () => void;
 }) {
   if (!page) {
-    return <EmptyWorkspace title="初稿" description="等待后端生成 slide_plan。" />;
+    return (
+      <div className="stage-preview-shell">
+        <div className="stage-preview-frame">
+          <EmptyPreview description="等待后端生成 slide_plan。" />
+        </div>
+      </div>
+    );
   }
 
   const isEditing = editState !== null;
@@ -926,9 +873,10 @@ function DraftWorkspace({
   };
 
   return (
-    <>
-      <div className="workspace-section-heading">
-        <span>初稿内容</span>
+    <div className="stage-preview-shell">
+      <div className="stage-preview-header">
+        <span className="eyebrow">初稿</span>
+        <strong style={{ fontSize: 15, marginRight: "auto" }}>{page.title}</strong>
         {!isEditing ? (
           <button className="ghost-button" onClick={() => onInitEdit(page)} type="button">
             编辑
@@ -945,127 +893,109 @@ function DraftWorkspace({
         )}
       </div>
 
-      <div className="workspace-card workspace-card-primary">
-        <div className="workspace-meta-row">
-          <strong>页面标题</strong>
-        </div>
-        {isEditing ? (
-          <input
-            className="draft-edit-input"
-            value={display.title}
-            onChange={(e) => onEditChange({ title: e.target.value })}
-          />
-        ) : (
-          <h3>{display.title}</h3>
-        )}
-      </div>
-
-      <div className="workspace-card">
-        <div className="workspace-meta-row">
-          <strong>核心表达</strong>
-          <span className="topic-pill">{page.narrative_role}</span>
-        </div>
-        {isEditing ? (
-          <textarea
-            className="draft-edit-textarea"
-            value={display.core_message}
-            rows={3}
-            onChange={(e) => onEditChange({ core_message: e.target.value })}
-          />
-        ) : (
-          <p>{display.core_message}</p>
-        )}
-      </div>
-
-      <div className="workspace-card-list">
-        {display.blocks.map((block, index) => (
-          <article className="workspace-card" key={block.block_id}>
-            <div className="workspace-meta-row">
-              {isEditing ? (
-                <input
-                  className="draft-edit-input"
-                  value={block.title}
-                  onChange={(e) => {
-                    const next = display.blocks.map((b, i) =>
-                      i === index ? { ...b, title: e.target.value } : b
-                    );
-                    onEditChange({ blocks: next });
-                  }}
-                />
-              ) : (
-                <strong>{block.title}</strong>
-              )}
-              <span className="topic-pill">{`${(page.blocks[index] as { kind?: string })?.kind ?? ""} / ${block.emphasis}`}</span>
-            </div>
-            {isEditing ? (
-              <textarea
-                className="draft-edit-textarea"
-                value={block.content}
-                rows={3}
-                onChange={(e) => {
-                  const next = display.blocks.map((b, i) =>
-                    i === index ? { ...b, content: e.target.value } : b
-                  );
-                  onEditChange({ blocks: next });
-                }}
-              />
-            ) : (
-              <p>{block.content}</p>
-            )}
-            {isEditing && (
-              <div className="draft-block-reorder">
-                <button
-                  className="ghost-button"
-                  disabled={index === 0}
-                  onClick={() => {
-                    const next = [...display.blocks];
-                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                    onEditChange({ blocks: next });
-                  }}
-                  type="button"
-                >
-                  ↑
-                </button>
-                <button
-                  className="ghost-button"
-                  disabled={index === display.blocks.length - 1}
-                  onClick={() => {
-                    const next = [...display.blocks];
-                    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                    onEditChange({ blocks: next });
-                  }}
-                  type="button"
-                >
-                  ↓
-                </button>
+      <div className="stage-preview-frame">
+        <div className="artboard-wrapper">
+          <div className="artboard">
+            <div className="artboard-title">
+              <span className="title-marker" />
+              <div className="title-copy">
+                {isEditing ? (
+                  <textarea
+                    className="title-input"
+                    value={display.title}
+                    rows={2}
+                    onChange={(e) => onEditChange({ title: e.target.value })}
+                  />
+                ) : (
+                  <h2>{display.title}</h2>
+                )}
               </div>
-            )}
-          </article>
-        ))}
-      </div>
+              <div className="title-meta">{`第 ${page.order_no.toString().padStart(2, "0")} 页`}</div>
+            </div>
 
-      {brief && !isEditing ? (
-        <div className="workspace-card">
-          <div className="workspace-meta-row">
-            <strong>版式意图</strong>
-            <span className="topic-pill">{page.suggested_layout}</span>
+            <div className="artboard-grid">
+              {display.blocks.slice(0, 4).map((block, index) => (
+                <section className="art-card" key={block.block_id}>
+                  <div className="art-card-head">
+                    {isEditing ? (
+                      <input
+                        className="draft-edit-input"
+                        value={block.title}
+                        onChange={(e) => {
+                          const next = display.blocks.map((b, i) =>
+                            i === index ? { ...b, title: e.target.value } : b
+                          );
+                          onEditChange({ blocks: next });
+                        }}
+                      />
+                    ) : (
+                      <h3>{block.title}</h3>
+                    )}
+                    <span className="blue-tag">
+                      {(page.blocks[index] as { kind?: string })?.kind ?? ""}
+                    </span>
+                  </div>
+                  {isEditing ? (
+                    <textarea
+                      className="card-textarea"
+                      value={block.content}
+                      rows={4}
+                      onChange={(e) => {
+                        const next = display.blocks.map((b, i) =>
+                          i === index ? { ...b, content: e.target.value } : b
+                        );
+                        onEditChange({ blocks: next });
+                      }}
+                    />
+                  ) : (
+                    <p className="canvas-copy">{block.content}</p>
+                  )}
+                  {isEditing && (
+                    <div className="draft-block-reorder">
+                      <button
+                        className="ghost-button"
+                        disabled={index === 0}
+                        onClick={() => {
+                          const next = [...display.blocks];
+                          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                          onEditChange({ blocks: next });
+                        }}
+                        type="button"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={index === display.blocks.length - 1}
+                        onClick={() => {
+                          const next = [...display.blocks];
+                          [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                          onEditChange({ blocks: next });
+                        }}
+                        type="button"
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+
+            {brief && !isEditing ? (
+              <div className="status-strip status-strip-soft" style={{ marginTop: 18 }}>
+                {`版式：${page.suggested_layout} · 视觉重心：${page.visual_focus} · 语气：${brief.tone}`}
+              </div>
+            ) : null}
           </div>
-          <ul className="fact-list">
-            <li>{`视觉重心：${page.visual_focus}`}</li>
-            <li>{`语气：${brief.tone}`}</li>
-            {page.design_notes.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
         </div>
-      ) : null}
-    </>
+      </div>
+    </div>
   );
 }
 
 function DesignWorkspace({
   page,
-  planPage,
   isRegenerating,
   onRegenerate,
   reviewPage,
@@ -1073,7 +1003,6 @@ function DesignWorkspace({
   onRunReview,
 }: {
   page: SvgSlidePage | null;
-  planPage: SlidePlanPage | null;
   isRegenerating: boolean;
   onRegenerate: () => void;
   reviewPage: ReviewPage | null;
@@ -1081,57 +1010,59 @@ function DesignWorkspace({
   onRunReview: () => void;
 }) {
   if (!page) {
-    return <EmptyWorkspace title="设计稿" description="等待后端生成 svg 设计稿。" />;
+    return (
+      <div className="stage-preview-shell">
+        <div className="stage-preview-frame">
+          <EmptyPreview description="等待后端生成 SVG 设计稿。" />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <>
-      <div className="workspace-section-heading">
-        <span>设计稿</span>
-        <strong>{page.title}</strong>
-        <button
-          className="ghost-button"
-          disabled={isRegenerating}
-          onClick={onRegenerate}
-          type="button"
-        >
-          {isRegenerating ? "生成中..." : "重新生成"}
-        </button>
-        <button
-          className="ghost-button"
-          disabled={isReviewing}
-          onClick={onRunReview}
-          type="button"
-        >
-          {isReviewing ? "检查中..." : "检查"}
-        </button>
+    <div className="stage-preview-shell">
+      <div className="stage-preview-header">
+        <span className="eyebrow">设计稿</span>
+        <strong style={{ fontSize: 15, marginRight: "auto" }}>{page.title}</strong>
+        <div className="design-action-bar">
+          <button
+            className="ghost-button"
+            disabled={isRegenerating}
+            onClick={onRegenerate}
+            type="button"
+          >
+            {isRegenerating ? "生成中..." : "重新生成"}
+          </button>
+          <button
+            className="ghost-button"
+            disabled={isReviewing}
+            onClick={onRunReview}
+            type="button"
+          >
+            {isReviewing ? "检查中..." : "检查"}
+          </button>
+        </div>
       </div>
 
-      <div className="workspace-card workspace-card-primary">
-        <div className="workspace-meta-row">
-          <strong>渲染结果</strong>
-          <span className="topic-pill">{`SVG ${page.svg.length} chars`}</span>
+      <div className="stage-preview-frame">
+        <div className="svg-preview-stage">
+          <div
+            className="svg-preview-surface"
+            dangerouslySetInnerHTML={{ __html: page.svg }}
+          />
         </div>
-        <p>右侧直接展示后端返回的完整 SVG 设计稿。</p>
       </div>
-
-      {planPage ? (
-        <div className="workspace-card">
-          <div className="workspace-meta-row">
-            <strong>设计输入</strong>
-            <span className="topic-pill">{planPage.suggested_layout}</span>
-          </div>
-          <ul className="fact-list">
-            <li>{`叙事角色：${planPage.narrative_role}`}</li>
-            <li>{`视觉重心：${planPage.visual_focus}`}</li>
-            <li>{`区块数量：${planPage.blocks.length}`}</li>
-          </ul>
-        </div>
-      ) : null}
 
       {reviewPage ? (
-        <div className={`workspace-card ${reviewPage.passed ? "" : "workspace-card-warning"}`}>
-          <div className="workspace-meta-row">
+        <div className={`review-panel ${reviewPage.passed ? "" : "review-panel-warning"}`}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: reviewPage.issues.length ? 10 : 0,
+            }}
+          >
             <strong>{reviewPage.passed ? "✓ 检查通过" : "⚠ 检查发现问题"}</strong>
             <span className="topic-pill">{`${reviewPage.issues.length} 条`}</span>
           </div>
@@ -1144,102 +1075,10 @@ function DesignWorkspace({
               ))}
             </ul>
           ) : (
-            <p>所有检查项均通过。</p>
+            <p style={{ margin: 0, color: "var(--muted)" }}>所有检查项均通过。</p>
           )}
         </div>
       ) : null}
-    </>
-  );
-}
-
-function SearchPreview({ page }: { page: SearchPage | null }) {
-  if (!page) {
-    return <EmptyPreview description="搜索阶段会在这里展示当前页的 research 结果。" />;
-  }
-
-  return (
-    <div className="research-preview-card">
-      <div className="research-preview-frame">
-        <div className="research-preview-page-no">{page.order_no}</div>
-        <div className="research-preview-title">{page.title}</div>
-        <p className="research-preview-copy">{page.key_message}</p>
-        <div className="research-preview-list">
-          {page.facts.map((fact) => (
-            <div className="research-preview-fact" key={fact}>
-              {fact}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="research-preview-footer">
-        <strong>{page.citations.length ? "已找到相关来源" : "暂无外部来源"}</strong>
-        <p>搜索阶段右侧只展示后端返回的当前页 research artifact。</p>
-      </div>
-    </div>
-  );
-}
-
-function DraftPreview({
-  pages,
-  selectedSlideId,
-  onSelectSlide,
-}: {
-  pages: SlidePlanPage[];
-  selectedSlideId: string | null;
-  onSelectSlide: (slideId: string) => void;
-}) {
-  if (pages.length === 0) {
-    return <EmptyPreview description="初稿阶段会在这里展示全套 PPT 预览。" />;
-  }
-
-  return (
-    <div className="deck-list-preview">
-      {pages.map((page) => (
-        <button
-          key={page.slide_id}
-          className={`deck-list-item ${page.slide_id === selectedSlideId ? "deck-list-item-active" : ""}`}
-          onClick={() => onSelectSlide(page.slide_id)}
-          type="button"
-        >
-          <div className="artboard artboard-mini">
-            <div className="artboard-title">
-              <span className="title-marker" />
-              <div className="title-copy">
-                <h2>{page.title}</h2>
-              </div>
-              <div className="title-meta">{`Page ${page.order_no.toString().padStart(2, "0")}`}</div>
-            </div>
-            <div className="artboard-grid">
-              {page.blocks.slice(0, 2).map((block) => (
-                <section className="art-card" key={block.block_id}>
-                  <div className="art-card-head">
-                    <h3>{block.title}</h3>
-                  </div>
-                  <p className="canvas-copy">{block.content}</p>
-                </section>
-              ))}
-            </div>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SvgPreview({ page }: { page: SvgSlidePage | null }) {
-  if (!page) {
-    return <EmptyPreview description="设计稿阶段会在这里展示后端返回的 SVG。" />;
-  }
-
-  return (
-    <div className="preview-canvas-frame preview-canvas-frame-polished">
-      <div className="svg-preview-stage">
-        <div
-          className="svg-preview-surface"
-          dangerouslySetInnerHTML={{ __html: page.svg }}
-        />
-      </div>
     </div>
   );
 }
@@ -1328,28 +1167,11 @@ function ThumbnailLoading() {
   );
 }
 
-function EmptyWorkspace({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="workspace-card workspace-card-empty">
-      <strong>{title}</strong>
-      <p>{description}</p>
-    </div>
-  );
-}
-
 function EmptyPreview({ description }: { description: string }) {
   return (
-    <div className="preview-canvas-frame">
-      <div className="empty-preview">
-        <strong>等待生成</strong>
-        <p>{description}</p>
-      </div>
+    <div className="empty-preview">
+      <strong>等待生成</strong>
+      <p>{description}</p>
     </div>
   );
 }
