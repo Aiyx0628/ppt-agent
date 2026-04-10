@@ -8,6 +8,8 @@ import type {
   Project,
   RequirementBrief,
   ResearchPack,
+  ReviewArtifact,
+  ReviewPage,
   SearchArtifact,
   SearchPage,
   SlidePlanArtifact,
@@ -43,6 +45,8 @@ type WorkspaceState = {
   } | null;
   isSaving: boolean;
   regeneratingSlideId: string | null;
+  reviewArtifact: ReviewArtifact | null;
+  isReviewing: boolean;
   error: string | null;
 };
 
@@ -80,6 +84,8 @@ export function App() {
     draftEditState: null,
     isSaving: false,
     regeneratingSlideId: null,
+    reviewArtifact: null,
+    isReviewing: false,
     error: null,
   });
   const [draggedSlideId, setDraggedSlideId] = useState<string | null>(null);
@@ -480,6 +486,22 @@ export function App() {
     }
   }
 
+  async function handleRunReview() {
+    if (!workspace.selectedProjectId) return;
+    setWorkspace((current) => ({ ...current, isReviewing: true, error: null }));
+    try {
+      const review = await api.runReview(workspace.selectedProjectId);
+      startTransition(() => {
+        setWorkspace((current) => ({ ...current, reviewArtifact: review, isReviewing: false }));
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "检查失败";
+      startTransition(() => {
+        setWorkspace((current) => ({ ...current, isReviewing: false, error: message }));
+      });
+    }
+  }
+
   async function handleDrop(targetSlideId: string) {
     if (!workspace.selectedProjectId || !workspace.outline || !draggedSlideId) {
       return;
@@ -706,6 +728,9 @@ export function App() {
                   )}
                   title={slide.title}
                   regeneratingSlideId={workspace.regeneratingSlideId}
+                  reviewPage={workspace.reviewArtifact?.pages.find(
+                    (page) => page.slide_id === slide.slide_id
+                  )}
                 />
               </button>
             ))}
@@ -746,6 +771,13 @@ export function App() {
                       ? void handleRegenerateSvgPage(selectedSlideId)
                       : undefined
                   }
+                  reviewPage={
+                    workspace.reviewArtifact?.pages.find(
+                      (p) => p.slide_id === selectedSlideId
+                    ) ?? null
+                  }
+                  isReviewing={workspace.isReviewing}
+                  onRunReview={() => void handleRunReview()}
                 />
               ) : null}
             </div>
@@ -1038,11 +1070,17 @@ function DesignWorkspace({
   planPage,
   isRegenerating,
   onRegenerate,
+  reviewPage,
+  isReviewing,
+  onRunReview,
 }: {
   page: SvgSlidePage | null;
   planPage: SlidePlanPage | null;
   isRegenerating: boolean;
   onRegenerate: () => void;
+  reviewPage: ReviewPage | null;
+  isReviewing: boolean;
+  onRunReview: () => void;
 }) {
   if (!page) {
     return <EmptyWorkspace title="设计稿" description="等待后端生成 svg 设计稿。" />;
@@ -1060,6 +1098,14 @@ function DesignWorkspace({
           type="button"
         >
           {isRegenerating ? "生成中..." : "重新生成"}
+        </button>
+        <button
+          className="ghost-button"
+          disabled={isReviewing}
+          onClick={onRunReview}
+          type="button"
+        >
+          {isReviewing ? "检查中..." : "检查"}
         </button>
       </div>
 
@@ -1082,6 +1128,26 @@ function DesignWorkspace({
             <li>{`视觉重心：${planPage.visual_focus}`}</li>
             <li>{`区块数量：${planPage.blocks.length}`}</li>
           </ul>
+        </div>
+      ) : null}
+
+      {reviewPage ? (
+        <div className={`workspace-card ${reviewPage.passed ? "" : "workspace-card-warning"}`}>
+          <div className="workspace-meta-row">
+            <strong>{reviewPage.passed ? "✓ 检查通过" : "⚠ 检查发现问题"}</strong>
+            <span className="topic-pill">{`${reviewPage.issues.length} 条`}</span>
+          </div>
+          {reviewPage.issues.length > 0 ? (
+            <ul className="fact-list">
+              {reviewPage.issues.map((issue) => (
+                <li key={issue.code}>
+                  <strong>[{issue.severity}]</strong> {issue.detail}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>所有检查项均通过。</p>
+          )}
         </div>
       ) : null}
     </>
@@ -1188,6 +1254,7 @@ function StageThumbnail({
   draftPage,
   svgPage,
   regeneratingSlideId,
+  reviewPage,
 }: {
   stage: StageView;
   title: string;
@@ -1196,6 +1263,7 @@ function StageThumbnail({
   draftPage: SlidePlanPage | undefined;
   svgPage: SvgSlidePage | undefined;
   regeneratingSlideId: string | null;
+  reviewPage?: ReviewPage;
 }) {
   return (
     <div className="slide-thumb-canvas">
@@ -1228,19 +1296,22 @@ function StageThumbnail({
         )
       ) : null}
 
-      {stage === "design" ? (
-        svgPage ? (
-          regeneratingSlideId === svgPage.slide_id ? (
+      {stage === "design" && svgPage ? (
+        <div className="slide-thumb-design-wrapper">
+          {regeneratingSlideId === svgPage.slide_id ? (
             <ThumbnailLoading />
           ) : (
             <div
               className="slide-thumb-design-live"
               dangerouslySetInnerHTML={{ __html: svgPage.svg }}
             />
-          )
-        ) : (
-          <ThumbnailLoading />
-        )
+          )}
+          {reviewPage && !reviewPage.passed ? (
+            <span className="slide-thumb-issue-dot" title="检查发现问题" />
+          ) : null}
+        </div>
+      ) : stage === "design" ? (
+        <ThumbnailLoading />
       ) : null}
 
       {!searchPage && !draftPage && !svgPage && outlineSlide ? (

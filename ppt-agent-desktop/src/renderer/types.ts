@@ -163,3 +163,22 @@ export type SlidePlanPageUpdateRequest = {
   visual_focus?: string;
   blocks?: SlidePlanBlockUpdate[];
 };
+
+export type ReviewIssue = {
+  code: string;
+  severity: "error" | "warning" | "info";
+  detail: string;
+};
+
+export type ReviewPage = {
+  slide_id: string;
+  order_no: number;
+  issues: ReviewIssue[];
+  passed: boolean;
+};
+
+export type ReviewArtifact = {
+  project_id: string;
+  version: number;
+  pages: ReviewPage[];
+};

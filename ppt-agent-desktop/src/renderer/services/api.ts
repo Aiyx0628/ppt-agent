@@ -6,6 +6,7 @@ import type {
   ProjectListResponse,
   ResearchPack,
   RequirementBrief,
+  ReviewArtifact,
   SearchArtifact,
   SlidePlanArtifact,
   SlidePlanPage,
@@ -149,4 +150,10 @@ export const api = {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 100);
   },
+  runReview: (projectId: string) =>
+    request<ReviewArtifact>(`/api/projects/${projectId}/review/run`, {
+      method: "POST",
+    }),
+  getReview: (projectId: string) =>
+    request<ReviewArtifact>(`/api/projects/${projectId}/review`),
 };
