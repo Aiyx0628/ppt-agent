@@ -769,7 +769,6 @@ function SearchWorkspace({
   page,
 }: {
   page: SearchPage | null;
-  research: ResearchPack | null;
 }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
 
