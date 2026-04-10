@@ -160,6 +160,11 @@ button {
     background 180ms ease;
 }
 
+.workspace-card-warning {
+  border-color: #f6ad55;
+  background: #fffaf0;
+}
+
 .ghost-button,
 .search-entry,
 .back-button,
@@ -460,6 +465,21 @@ button {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.slide-thumb-design-wrapper {
+  position: relative;
+}
+
+.slide-thumb-issue-dot {
+  position: absolute;
+  top: 14px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e53e3e;
+  border: 1px solid #fff;
 }
 
 .editor-main {

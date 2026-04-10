@@ -256,6 +256,8 @@ export function App() {
           searchPages,
           slidePlan,
           svgArtifact,
+          reviewArtifact: null,
+          isReviewing: false,
           selectedSlideId:
             current.selectedSlideId ??
             outline.slides[0]?.slide_id ??
