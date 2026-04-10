@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_api_key: str | None = None
     gemini_model: str | None = None
+    tavily_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="PPT_AGENT_",

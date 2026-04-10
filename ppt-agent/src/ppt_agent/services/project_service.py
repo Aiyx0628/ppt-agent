@@ -11,8 +11,12 @@ from xml.etree import ElementTree
 
 from pydantic import ValidationError
 
-import cairosvg
 from pypdf import PdfReader, PdfWriter
+
+try:
+    from tavily import TavilyClient
+except ImportError:
+    TavilyClient = None  # type: ignore[assignment,misc]
 
 from ppt_agent.config import get_settings
 from ppt_agent.schemas.brief import BriefConfirmResponse, BriefQuestion, BriefUpdateRequest, RequirementBrief
@@ -324,6 +328,7 @@ class ProjectService:
         return buffer.getvalue()
 
     def export_pdf(self, project_id: str) -> bytes:
+        import cairosvg  # lazy: requires system cairo library (DYLD_LIBRARY_PATH on macOS)
         svg_artifact = self.get_svg(project_id)
         writer = PdfWriter()
         for page in sorted(svg_artifact.pages, key=lambda p: p.order_no):
@@ -343,9 +348,38 @@ class ProjectService:
         except ProjectNotFoundError:
             return self.generate_brief(project_id)
 
-    def _generate_research_with_fallback(self, project: ProjectResponse) -> ResearchPack:
+    def _fetch_tavily_results(
+        self,
+        project: ProjectResponse,
+        api_key: str | None,
+    ) -> list[dict[str, str]]:
+        if not api_key or TavilyClient is None:
+            return []
         try:
-            return self._generate_research_with_model(project)
+            keywords = self._extract_search_keywords(project)
+            client = TavilyClient(api_key=api_key)
+            results: list[dict[str, str]] = []
+            for kw in keywords[:3]:
+                resp = client.search(kw, max_results=3, search_depth="basic")
+                for item in resp.get("results", []):
+                    results.append({
+                        "title": item.get("title", ""),
+                        "url": item.get("url", ""),
+                        "content": item.get("content", ""),
+                    })
+            return results[:9]
+        except Exception:
+            return []
+
+    def _extract_search_keywords(self, project: ProjectResponse) -> list[str]:
+        tokens = self._tokenize(f"{project.title} {project.config.scenario} {project.config.audience}")
+        return tokens[:3] if tokens else [project.title]
+
+    def _generate_research_with_fallback(self, project: ProjectResponse) -> ResearchPack:
+        settings = get_settings()
+        search_results = self._fetch_tavily_results(project, api_key=settings.tavily_api_key)
+        try:
+            return self._generate_research_with_model(project, search_results=search_results)
         except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
             return self._generate_research_fallback(project)
 
@@ -453,10 +487,14 @@ class ProjectService:
         except (ModelProviderError, ValidationError, ValueError, json.JSONDecodeError):
             return self._generate_svg_fallback(project, slide_plan)
 
-    def _generate_research_with_model(self, project: ProjectResponse) -> ResearchPack:
+    def _generate_research_with_model(
+        self,
+        project: ProjectResponse,
+        search_results: list[dict[str, str]] | None = None,
+    ) -> ResearchPack:
         response = get_model_router().generate_text(
             GenerateTextRequest(
-                prompt=self._build_research_prompt(project),
+                prompt=self._build_research_prompt(project, search_results=search_results or []),
                 system_instruction=(
                     "你是 PPT 调研助理。请只输出 JSON。不要输出 markdown，不要解释。"
                 ),
@@ -1008,7 +1046,18 @@ class ProjectService:
             text = re.sub(r"\s*```$", "", text)
         return json.loads(text)
 
-    def _build_research_prompt(self, project: ProjectResponse) -> str:
+    def _build_research_prompt(
+        self,
+        project: ProjectResponse,
+        search_results: list[dict[str, str]] | None = None,
+    ) -> str:
+        search_section = ""
+        if search_results:
+            lines = "\n".join(
+                f"- [{item['title']}]({item['url']}): {item['content'][:200]}"
+                for item in search_results
+            )
+            search_section = f"\n\n以下是来自外部搜索的参考资料（请优先引用）：\n{lines}"
         return f"""
 请根据以下项目信息生成 research_pack。
 
@@ -1038,7 +1087,7 @@ class ProjectService:
 要求：
 1. 如果没有真实联网来源，citations 返回空数组。
 2. topics 数量控制在 3 到 6 个。
-3. facts 必须来自用户输入和项目配置，不要编造数字。
+3. facts 必须来自用户输入和项目配置，不要编造数字。{search_section}
 """.strip()
 
     def _build_brief_prompt(self, project: ProjectResponse, research: ResearchPack) -> str:

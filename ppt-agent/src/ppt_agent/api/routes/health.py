@@ -25,5 +25,10 @@ def get_health() -> HealthResponse:
             "api": ServiceStatus(status="ok", detail="FastAPI is serving requests."),
             "database": db_status,
             "model_router": model_status,
+            "tavily": (
+                ServiceStatus(status="ok", detail="Tavily API key is configured.")
+                if settings.tavily_api_key
+                else ServiceStatus(status="not_configured", detail="Set PPT_AGENT_TAVILY_API_KEY to enable web search.")
+            ),
         },
     )
