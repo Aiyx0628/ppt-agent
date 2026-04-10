@@ -629,13 +629,9 @@ export function App() {
 
         <div className="toolbar-center">
           <strong>{selectedProject?.title ?? DEFAULT_TITLE}</strong>
-          <span className="preview-pill">预览</span>
         </div>
 
         <div className="toolbar-right">
-          <button className="ghost-button" type="button">
-            放映
-          </button>
           <div className="export-dropdown" style={{ position: "relative" }}>
             <button
               className="export-button"
