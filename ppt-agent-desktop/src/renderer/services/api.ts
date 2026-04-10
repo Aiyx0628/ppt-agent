@@ -136,7 +136,7 @@ export const api = {
     a.href = url;
     a.download = `${projectId}_slides.zip`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   },
   exportPdf: async (projectId: string): Promise<void> => {
     const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/export/pdf`);
@@ -147,6 +147,6 @@ export const api = {
     a.href = url;
     a.download = `${projectId}_slides.pdf`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   },
 };

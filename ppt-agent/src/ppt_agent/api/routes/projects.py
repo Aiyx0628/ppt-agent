@@ -247,7 +247,7 @@ def export_svg(project_id: str) -> Response:
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={project_id}_slides.zip"},
+        headers={"Content-Disposition": f'attachment; filename="{project_id}_slides.zip"'},
     )
 
 
@@ -261,5 +261,5 @@ def export_pdf(project_id: str) -> Response:
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={project_id}_slides.pdf"},
+        headers={"Content-Disposition": f'attachment; filename="{project_id}_slides.pdf"'},
     )
