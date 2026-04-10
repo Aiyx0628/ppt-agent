@@ -38,12 +38,20 @@ body {
   background:
     radial-gradient(circle at top left, rgba(45, 108, 246, 0.08), transparent 24%),
     linear-gradient(180deg, #f7f9fc, #edf1f7 48%, #e9eef6);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button,
 input,
 textarea {
   font: inherit;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button {
@@ -231,7 +239,7 @@ button {
 
 .editor-topbar {
   display: grid;
-  grid-template-columns: 1.1fr 1.2fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 18px;
   min-height: 76px;
@@ -239,6 +247,12 @@ button {
   border-bottom: 1px solid rgba(216, 223, 235, 0.9);
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(18px);
+  -webkit-app-region: drag;
+}
+
+.editor-topbar button,
+.editor-topbar .export-dropdown {
+  -webkit-app-region: no-drag;
 }
 
 .editor-shell-mac .editor-topbar {
