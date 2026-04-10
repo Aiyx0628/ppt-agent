@@ -1161,8 +1161,8 @@ class ProjectService:
 要求：
 1. 如果没有真实联网来源，citations 返回空数组。
 2. topics 数量控制在 3 到 6 个。
-3. facts 必须来自用户输入和项目配置，不要编造数字。{search_section}
-""".strip()
+3. facts 必须来自用户输入和项目配置，不要编造数字。
+""".strip() + search_section
 
     def _build_brief_prompt(self, project: ProjectResponse, research: ResearchPack) -> str:
         topic_lines = "\n".join(
