@@ -772,6 +772,10 @@ function SearchWorkspace({
 }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
 
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [page?.slide_id]);
+
   if (!page) {
     return (
       <div className="search-layout">
