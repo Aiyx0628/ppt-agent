@@ -38,3 +38,5 @@ coverage/
 .git.repo-backup/
 
 storage/
+
+.claude/settings.local.json
