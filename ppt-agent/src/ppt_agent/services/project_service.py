@@ -26,6 +26,7 @@ from ppt_agent.schemas.project import ProjectCreateRequest, ProjectResponse, Pro
 from ppt_agent.schemas.research import ResearchPack, ResearchTopic
 from ppt_agent.schemas.search import SearchArtifact, SearchPage
 from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanBlock, SlidePlanPage, SlidePlanPageUpdateRequest
+from ppt_agent.schemas.review import ReviewArtifact, ReviewIssue, ReviewPage
 from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
 from ppt_agent.services.model_router import ModelProviderError, get_model_router
 from ppt_agent.services.storage_repository import ProjectNotFoundError, StorageRepository
@@ -340,6 +341,79 @@ class ProjectService:
         output = BytesIO()
         writer.write(output)
         return output.getvalue()
+
+    def run_review(self, project_id: str) -> ReviewArtifact:
+        svg_artifact = self.get_svg(project_id)
+        pages = [self._review_svg_page(page) for page in svg_artifact.pages]
+        artifact = ReviewArtifact(project_id=project_id, version=1, pages=pages)
+        self.repository.save_artifact(
+            project_id, "review", artifact.model_dump(mode="json")
+        )
+        return artifact
+
+    def get_review(self, project_id: str) -> ReviewArtifact:
+        stored = self.repository.load_artifact(project_id, "review")
+        return ReviewArtifact.model_validate(stored)
+
+    def _review_svg_page(self, page: SvgSlidePage) -> ReviewPage:
+        issues: list[ReviewIssue] = []
+
+        # 检查 1：SVG 结构合法性
+        try:
+            root = ElementTree.fromstring(page.svg)
+        except ElementTree.ParseError as exc:
+            issues.append(ReviewIssue(
+                code="invalid_xml",
+                severity="error",
+                detail=f"SVG 无法解析：{exc}",
+            ))
+            return ReviewPage(
+                slide_id=page.slide_id,
+                order_no=page.order_no,
+                issues=issues,
+                passed=False,
+            )
+
+        # 检查 2：viewBox
+        has_viewbox = "viewBox" in (root.attrib or {})
+        has_size = "width" in (root.attrib or {}) and "height" in (root.attrib or {})
+        if not has_viewbox and not has_size:
+            issues.append(ReviewIssue(
+                code="missing_viewbox",
+                severity="warning",
+                detail="SVG 缺少 viewBox 或 width/height，可能导致缩放异常。",
+            ))
+
+        # 检查 3：是否有文字内容
+        all_text = " ".join(
+            (el.text or "") + (el.tail or "")
+            for el in root.iter()
+            if el.tag in {
+                "{http://www.w3.org/2000/svg}text",
+                "{http://www.w3.org/2000/svg}tspan",
+            }
+        ).strip()
+        if not all_text:
+            issues.append(ReviewIssue(
+                code="no_text_content",
+                severity="warning",
+                detail="SVG 中未检测到文字内容，可能为空白页。",
+            ))
+
+        # 检查 4：文字总长度是否超出阈值
+        if len(all_text) > 800:
+            issues.append(ReviewIssue(
+                code="text_overflow_risk",
+                severity="warning",
+                detail=f"SVG 文字总长度 {len(all_text)} 字符，超过 800 字阈值，存在溢出风险。",
+            ))
+
+        return ReviewPage(
+            slide_id=page.slide_id,
+            order_no=page.order_no,
+            issues=issues,
+            passed=len([i for i in issues if i.severity == "error"]) == 0,
+        )
 
     def _get_or_generate_brief(self, project_id: str) -> RequirementBrief:
         try:

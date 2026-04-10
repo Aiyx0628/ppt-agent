@@ -11,6 +11,7 @@ from ppt_agent.schemas.project import (
 from ppt_agent.schemas.research import ResearchPack
 from ppt_agent.schemas.search import SearchArtifact
 from ppt_agent.schemas.slide_plan import SlidePlanArtifact, SlidePlanPage, SlidePlanPageUpdateRequest
+from ppt_agent.schemas.review import ReviewArtifact
 from ppt_agent.schemas.svg import SvgSlideArtifact, SvgSlidePage
 from ppt_agent.services.project_service import ProjectNotFoundError, get_project_service
 
@@ -263,3 +264,21 @@ def export_pdf(project_id: str) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{project_id}_slides.pdf"'},
     )
+
+
+@router.post("/{project_id}/review/run", response_model=ReviewArtifact)
+def run_review(project_id: str) -> ReviewArtifact:
+    service = get_project_service()
+    try:
+        return service.run_review(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/review", response_model=ReviewArtifact)
+def get_review(project_id: str) -> ReviewArtifact:
+    service = get_project_service()
+    try:
+        return service.get_review(project_id)
+    except ProjectNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
