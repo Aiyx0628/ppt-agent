@@ -317,7 +317,7 @@ button {
 
 .editor-body {
   display: grid;
-  grid-template-columns: 148px 1fr;
+  grid-template-columns: 220px 1fr;
   min-height: 0;
 }
 
@@ -332,14 +332,17 @@ button {
 
 .rail-stage-switch {
   display: grid;
-  gap: 6px;
-  padding: 6px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
   border-radius: 20px;
   background: rgba(236, 241, 248, 0.96);
 }
 
 .rail-stage-switch .stage-tab {
-  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 13px;
 }
 
 .rail-header {
