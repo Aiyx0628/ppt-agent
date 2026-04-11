@@ -56,6 +56,13 @@ type SlideReference = {
   title: string;
 };
 
+type ChatMessage = {
+  id: string;
+  role: "ai" | "user";
+  text: string;
+  time: string;
+};
+
 const DEFAULT_TITLE = "全链路 LLMOps：覆盖开发、调试至监控的生命周期";
 const DEFAULT_PROMPT =
   "请基于我上传的资料，生成一套 14 页、科技感、适合团队汇报的 PPT，重点突出开发、调试、监控、闭环优化和生态集成。";
@@ -92,6 +99,9 @@ export function App() {
   const [composer, setComposer] = useState(DEFAULT_PROMPT);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const runtime = window.deckflow.getRuntimeInfo();
@@ -251,6 +261,7 @@ export function App() {
           error: null,
         }));
       });
+      addChatMessage("ai", `项目"${project.title}"已加载，可在此输入修改指令。`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to load project.";
@@ -315,6 +326,7 @@ export function App() {
     setWorkspace((current) => ({ ...current, isBusy: true, error: null }));
 
     try {
+      addChatMessage("ai", `正在准备${stageLabels[nextStage]}阶段...`);
       const projectId = workspace.selectedProjectId;
       const research = workspace.research ?? (await api.getResearch(projectId).catch(() =>
         api.runResearch(projectId)
@@ -368,6 +380,7 @@ export function App() {
           error: null,
         }));
         setStage(nextStage);
+        addChatMessage("ai", `${stageLabels[nextStage]}阶段已就绪，共 ${orderedSlides.length} 页。`);
       });
     } catch (error) {
       const message =
@@ -379,6 +392,7 @@ export function App() {
           error: message,
         }));
       });
+      addChatMessage("ai", `生成失败：${message}`);
     }
   }
 
@@ -449,6 +463,7 @@ export function App() {
     if (!workspace.selectedProjectId) return;
     setWorkspace((current) => ({ ...current, regeneratingSlideId: slideId, error: null }));
     try {
+      addChatMessage("ai", `正在重新生成第 ${workspace.svgArtifact?.pages.find(p => p.slide_id === slideId)?.order_no ?? "?"} 页设计稿...`);
       const newPage = await api.regenerateSvgPage(workspace.selectedProjectId, slideId);
       startTransition(() => {
         setWorkspace((current) => ({
@@ -464,6 +479,7 @@ export function App() {
           regeneratingSlideId: null,
         }));
       });
+      addChatMessage("ai", "设计稿页面已更新。");
     } catch (error) {
       const message = error instanceof Error ? error.message : "重新生成失败";
       startTransition(() => {
@@ -539,6 +555,16 @@ export function App() {
       setPageView("intake");
       setWorkspace((current) => ({ ...current, error: null }));
     });
+  }
+
+  function addChatMessage(role: "ai" | "user", text: string) {
+    const now = new Date();
+    const time = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+    setChatMessages((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${Math.random()}`, role, text, time },
+    ]);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
 
   if (pageView === "intake") {
@@ -1197,4 +1223,52 @@ function reorderSlides(
   next.splice(targetIndex, 0, moved);
 
   return next.map((slide, index) => ({ ...slide, order_no: index + 1 }));
+}
+
+function Sidebar({
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onNewProject,
+}: {
+  projects: Project[];
+  selectedProjectId: string | null;
+  onSelectProject: (id: string) => void;
+  onNewProject: () => void;
+}) {
+  const stageBadge = (p: Project) => {
+    if (p.status === "draft") return null;
+    return <span className="project-item-badge project-item-badge-blue">进行中</span>;
+  };
+
+  return (
+    <aside className="app-sidebar">
+      <div className="sidebar-brand">ppt-agent</div>
+
+      <button className="sidebar-new-btn" onClick={onNewProject} type="button">
+        ＋ 新建项目
+      </button>
+
+      {projects.length > 0 ? (
+        <>
+          <div className="sidebar-section-label">最近</div>
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              className={`project-item ${p.id === selectedProjectId ? "project-item-active" : ""}`}
+              onClick={() => onSelectProject(p.id)}
+              type="button"
+            >
+              <span className="project-item-title">{p.title || p.topic}</span>
+              {stageBadge(p)}
+            </button>
+          ))}
+        </>
+      ) : (
+        <div className="sidebar-empty">暂无记录</div>
+      )}
+
+      <div className="sidebar-spacer" />
+    </aside>
+  );
 }
