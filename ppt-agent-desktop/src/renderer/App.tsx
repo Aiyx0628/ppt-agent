@@ -568,30 +568,68 @@ export function App() {
   }
 
   if (pageView === "intake") {
+    const greeting = (() => {
+      const h = new Date().getHours();
+      if (h >= 6 && h < 12) return "早上好，";
+      if (h >= 12 && h < 18) return "下午好，";
+      return "晚上好，";
+    })();
+
+    const chips = ["LLMOps 研究报告", "产品发布会", "季度财报分析", "企业介绍"];
+
     return (
-      <div className="intake-shell">
-        <section className="intake-panel">
-          <div className="intake-brand">DeckFlow</div>
-          <div className="intake-caption">
-            上传文本资料，然后用一句话输入你的所有要求。
-          </div>
+      <div className="app-shell">
+        <Sidebar
+          projects={workspace.projects}
+          selectedProjectId={workspace.selectedProjectId}
+          onSelectProject={(id) => {
+            setWorkspace((current) => ({ ...current, selectedProjectId: id }));
+            void loadProjectArtifacts(id).then(() => setPageView("editor"));
+          }}
+          onNewProject={() => {
+            setWorkspace((current) => ({
+              ...current,
+              selectedProjectId: null,
+              brief: null,
+              research: null,
+              outline: null,
+              searchPages: null,
+              slidePlan: null,
+              svgArtifact: null,
+              selectedSlideId: null,
+              error: null,
+            }));
+            setComposer("");
+            setAttachments([]);
+          }}
+        />
 
-          <div className="intake-composer">
+        <div className="intake-main">
+          <h1 className="welcome-heading">
+            {greeting}
+            <br />
+            准备生成什么 PPT？
+          </h1>
+          <p className="welcome-subtitle">AI 生成定制级、可编辑的 PPT</p>
+
+          <div className="intake-box">
             <textarea
-              className="intake-textarea"
               placeholder="例如：请基于我上传的方案文档，做一套 14 页、科技风、适合老板汇报的 PPT，重点突出开发、调试、监控和闭环优化。"
-              rows={7}
               value={composer}
-              onChange={(event) => setComposer(event.target.value)}
+              onChange={(e) => setComposer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  void handleCreateProjectFromPrompt();
+                }
+              }}
             />
-
-            <div className="intake-toolbar">
+            <div className="intake-box-toolbar">
               <button
                 className="ghost-button"
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
               >
-                上传文件
+                📎 上传文件
               </button>
               <div className="intake-files">
                 {attachments.map((file) => (
@@ -606,21 +644,64 @@ export function App() {
                 onClick={() => void handleCreateProjectFromPrompt()}
                 type="button"
               >
-                {workspace.isBusy ? "解析中..." : "开始生成"}
+                {workspace.isBusy ? "解析中..." : "开始生成 →"}
               </button>
             </div>
           </div>
 
-          {workspace.error ? <div className="error-banner">{workspace.error}</div> : null}
-          {health.status === "error" ? (
-            <div className="error-banner">后端不可用：{health.message}</div>
+          <div className="intake-chips">
+            {chips.map((chip) => (
+              <button
+                key={chip}
+                className="intake-chip"
+                onClick={() => setComposer(`请生成一套关于「${chip}」的 PPT`)}
+                type="button"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {workspace.projects.length > 0 ? (
+            <div className="recent-projects">
+              <div className="recent-projects-label">最近项目</div>
+              <div className="recent-projects-grid">
+                {workspace.projects.slice(0, 3).map((p) => (
+                  <button
+                    key={p.id}
+                    className="recent-project-card"
+                    onClick={() => {
+                      setWorkspace((current) => ({ ...current, selectedProjectId: p.id }));
+                      void loadProjectArtifacts(p.id).then(() => setPageView("editor"));
+                    }}
+                    type="button"
+                  >
+                    <div className="recent-project-card-title">{p.title || p.topic}</div>
+                    <div className="recent-project-card-meta">
+                      {new Date(p.created_at).toLocaleDateString("zh-CN")}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : null}
-        </section>
+
+          {workspace.error ? (
+            <div className="error-banner" style={{ marginTop: 16, width: "min(680px, 100%)" }}>
+              {workspace.error}
+            </div>
+          ) : null}
+          {health.status === "error" ? (
+            <div className="error-banner" style={{ marginTop: 16, width: "min(680px, 100%)" }}>
+              后端不可用：{health.message}
+            </div>
+          ) : null}
+        </div>
 
         <input
           hidden
           multiple
-          onChange={(event) => setAttachments(Array.from(event.target.files ?? []))}
+          onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
           ref={fileInputRef}
           type="file"
         />
