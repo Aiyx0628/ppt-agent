@@ -1116,7 +1116,6 @@ button {
   width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 0;
   border-right: 1px solid rgba(216, 223, 235, 0.82);
   background: rgba(255, 255, 255, 0.56);
   backdrop-filter: blur(18px);
@@ -1152,7 +1151,7 @@ button {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: background 150ms ease, transform 150ms ease;
+  transition: background 180ms ease, transform 180ms ease;
 }
 
 .sidebar-new-btn:hover {
@@ -1183,7 +1182,7 @@ button {
   font-size: 13px;
   cursor: pointer;
   text-align: left;
-  transition: background 150ms ease, border-color 150ms ease;
+  transition: background 180ms ease, border-color 180ms ease;
   overflow: hidden;
 }
 
@@ -1328,7 +1327,7 @@ button {
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
 }
 
 .intake-chip:hover {
@@ -1366,7 +1365,7 @@ button {
   backdrop-filter: blur(12px);
   cursor: pointer;
   text-align: left;
-  transition: transform 150ms ease, box-shadow 150ms ease;
+  transition: transform 180ms ease, box-shadow 180ms ease;
 }
 
 .recent-project-card:hover {
