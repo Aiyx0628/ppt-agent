@@ -670,7 +670,6 @@ export function App() {
                     key={p.id}
                     className="recent-project-card"
                     onClick={() => {
-                      setWorkspace((current) => ({ ...current, selectedProjectId: p.id }));
                       void loadProjectArtifacts(p.id).then(() => setPageView("editor"));
                     }}
                     type="button"
