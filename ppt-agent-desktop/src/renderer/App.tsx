@@ -583,7 +583,6 @@ export function App() {
           projects={workspace.projects}
           selectedProjectId={workspace.selectedProjectId}
           onSelectProject={(id) => {
-            setWorkspace((current) => ({ ...current, selectedProjectId: id }));
             void loadProjectArtifacts(id).then(() => setPageView("editor"));
           }}
           onNewProject={() => {
