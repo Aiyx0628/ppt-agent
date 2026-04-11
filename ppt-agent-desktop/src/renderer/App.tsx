@@ -380,8 +380,8 @@ export function App() {
           error: null,
         }));
         setStage(nextStage);
-        addChatMessage("ai", `${stageLabels[nextStage]}阶段已就绪，共 ${orderedSlides.length} 页。`);
       });
+      addChatMessage("ai", `${stageLabels[nextStage]}阶段已就绪，共 ${orderedSlides.length} 页。`);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to prepare stage.";
