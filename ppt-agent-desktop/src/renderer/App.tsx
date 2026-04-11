@@ -730,16 +730,31 @@ export function App() {
   }
 
   return (
-    <div className={`editor-shell ${isMac ? "editor-shell-mac" : ""}`}>
-      <header className="editor-topbar">
+    <div className={`editor-shell app-shell flex-column ${isMac ? "editor-shell-mac" : ""}`}>
+      {/* Top navigation bar */}
+      <header className="editor-topbar-redesign">
         <div className="toolbar-left">
           <button className="back-button" onClick={handleReturnToIntake} type="button">
-            返回输入
+            ← 返回
           </button>
         </div>
 
         <div className="toolbar-center">
-          <strong>{selectedProject?.title ?? DEFAULT_TITLE}</strong>
+          <strong style={{ fontSize: 15, maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selectedProject?.title ?? DEFAULT_TITLE}
+          </strong>
+          <div className="stage-tabs">
+            {(Object.keys(stageLabels) as StageView[]).map((item) => (
+              <button
+                className={`stage-tab ${stage === item ? "stage-tab-active" : ""}`}
+                key={item}
+                onClick={() => void ensureStageArtifacts(item)}
+                type="button"
+              >
+                {stageLabels[item]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="toolbar-right">
@@ -779,21 +794,10 @@ export function App() {
         </div>
       </header>
 
-      <div className="editor-body">
+      {/* Three-column body */}
+      <div className="editor-body-redesign">
+        {/* Left: slide rail (no stage-switch, moved to topbar) */}
         <aside className="slide-rail">
-          <div className="rail-stage-switch">
-            {(Object.keys(stageLabels) as StageView[]).map((item) => (
-              <button
-                className={`stage-tab ${stage === item ? "stage-tab-active" : ""}`}
-                key={item}
-                onClick={() => void ensureStageArtifacts(item)}
-                type="button"
-              >
-                {stageLabels[item]}
-              </button>
-            ))}
-          </div>
-
           <div className="rail-header">
             <span>幻灯片</span>
             <strong>共 {visibleSlideCount} 页</strong>
@@ -815,37 +819,28 @@ export function App() {
                     }));
                   });
                 }}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(e) => e.preventDefault()}
                 onDragStart={() => setDraggedSlideId(slide.slide_id)}
                 onDrop={() => void handleDrop(slide.slide_id)}
                 type="button"
               >
                 <span className="slide-thumb-index">{slide.order_no}</span>
                 <StageThumbnail
-                  draftPage={workspace.slidePlan?.pages.find(
-                    (page) => page.slide_id === slide.slide_id
-                  )}
-                  outlineSlide={workspace.outline?.slides.find(
-                    (item) => item.slide_id === slide.slide_id
-                  )}
-                  searchPage={workspace.searchPages?.pages.find(
-                    (page) => page.slide_id === slide.slide_id
-                  )}
+                  draftPage={workspace.slidePlan?.pages.find((p) => p.slide_id === slide.slide_id)}
+                  outlineSlide={workspace.outline?.slides.find((s) => s.slide_id === slide.slide_id)}
+                  searchPage={workspace.searchPages?.pages.find((p) => p.slide_id === slide.slide_id)}
                   stage={stage}
-                  svgPage={workspace.svgArtifact?.pages.find(
-                    (page) => page.slide_id === slide.slide_id
-                  )}
+                  svgPage={workspace.svgArtifact?.pages.find((p) => p.slide_id === slide.slide_id)}
                   title={slide.title}
                   regeneratingSlideId={workspace.regeneratingSlideId}
-                  reviewPage={workspace.reviewArtifact?.pages.find(
-                    (page) => page.slide_id === slide.slide_id
-                  )}
+                  reviewPage={workspace.reviewArtifact?.pages.find((p) => p.slide_id === slide.slide_id)}
                 />
               </button>
             ))}
           </div>
         </aside>
 
+        {/* Center: main stage content */}
         <main className="editor-main">
           {stage === "search" ? (
             <SearchWorkspace page={selectedSearchPage} />
@@ -876,9 +871,7 @@ export function App() {
                 selectedSlideId ? void handleRegenerateSvgPage(selectedSlideId) : undefined
               }
               reviewPage={
-                workspace.reviewArtifact?.pages.find(
-                  (p) => p.slide_id === selectedSlideId
-                ) ?? null
+                workspace.reviewArtifact?.pages.find((p) => p.slide_id === selectedSlideId) ?? null
               }
               isReviewing={workspace.isReviewing}
               onRunReview={() => void handleRunReview()}
@@ -887,6 +880,17 @@ export function App() {
 
           {workspace.error ? <div className="error-banner">{workspace.error}</div> : null}
         </main>
+
+        {/* Right: AI chat panel */}
+        <ChatPanel
+          messages={chatMessages}
+          input={chatInput}
+          isBusy={workspace.isBusy}
+          stage={stage}
+          chatEndRef={chatEndRef}
+          onInputChange={setChatInput}
+          onSubmit={handleChatSubmit}
+        />
       </div>
     </div>
   );
@@ -1387,7 +1391,7 @@ function ChatPanel({
   input: string;
   isBusy: boolean;
   stage: StageView;
-  chatEndRef: RefObject<HTMLDivElement>;
+  chatEndRef: RefObject<HTMLDivElement | null>;
   onInputChange: (v: string) => void;
   onSubmit: () => void;
 }) {
