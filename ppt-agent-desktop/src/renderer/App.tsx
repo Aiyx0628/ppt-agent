@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { api } from "./services/api";
 import type {
@@ -565,6 +565,28 @@ export function App() {
       { id: `${Date.now()}-${Math.random()}`, role, text, time },
     ]);
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  }
+
+  function handleChatSubmit() {
+    const text = chatInput.trim();
+    if (!text || !workspace.selectedProjectId) return;
+    addChatMessage("user", text);
+    setChatInput("");
+
+    const lower = text.toLowerCase();
+    if (lower.includes("设计稿") || lower.includes("design")) {
+      void ensureStageArtifacts("design");
+    } else if (lower.includes("初稿") || lower.includes("draft")) {
+      void ensureStageArtifacts("draft");
+    } else if (lower.includes("搜索") || lower.includes("search")) {
+      void ensureStageArtifacts("search");
+    } else if (lower.includes("重新生成") && selectedSlideId) {
+      void handleRegenerateSvgPage(selectedSlideId);
+    } else if (lower.includes("检查") || lower.includes("review")) {
+      void handleRunReview();
+    } else {
+      addChatMessage("ai", "收到。目前支持的指令：「进入设计稿」「进入初稿」「重新生成」「检查」。");
+    }
   }
 
   if (pageView === "intake") {
@@ -1349,5 +1371,90 @@ function Sidebar({
 
       <div className="sidebar-spacer" />
     </aside>
+  );
+}
+
+function ChatPanel({
+  messages,
+  input,
+  isBusy,
+  stage,
+  chatEndRef,
+  onInputChange,
+  onSubmit,
+}: {
+  messages: ChatMessage[];
+  input: string;
+  isBusy: boolean;
+  stage: StageView;
+  chatEndRef: RefObject<HTMLDivElement>;
+  onInputChange: (v: string) => void;
+  onSubmit: () => void;
+}) {
+  const stageLabel: Record<StageView, string> = {
+    search: "搜索",
+    draft: "初稿",
+    design: "设计稿",
+  };
+
+  return (
+    <div className="chat-panel">
+      <div className="chat-panel-header">
+        AI 助手
+        <span className="chat-panel-stage-badge">{stageLabel[stage]}</span>
+      </div>
+
+      {messages.length === 0 ? (
+        <div className="chat-empty">
+          <span style={{ fontSize: 28 }}>💬</span>
+          <span>生成完成后，可在这里输入修改指令</span>
+        </div>
+      ) : (
+        <div className="chat-messages">
+          {messages.map((msg) => (
+            <div key={msg.id}>
+              <div className={`chat-bubble chat-bubble-${msg.role}`}>{msg.text}</div>
+              <div
+                className="chat-bubble-time"
+                style={{ textAlign: msg.role === "user" ? "right" : "left" }}
+              >
+                {msg.time}
+              </div>
+            </div>
+          ))}
+          {isBusy ? (
+            <div className="chat-bubble chat-bubble-ai">处理中...</div>
+          ) : null}
+          <div ref={chatEndRef} />
+        </div>
+      )}
+
+      <div className="chat-input-area">
+        <textarea
+          placeholder="输入修改需求..."
+          value={input}
+          disabled={isBusy}
+          onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+        <div className="chat-input-row">
+          <span className="chat-hint">Enter 发送，Shift+Enter 换行</span>
+          <button
+            className="submit-button"
+            disabled={isBusy || !input.trim()}
+            onClick={onSubmit}
+            style={{ minHeight: 34, padding: "0 14px", fontSize: 13 }}
+            type="button"
+          >
+            发送
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
