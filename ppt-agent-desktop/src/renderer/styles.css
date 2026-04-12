@@ -244,27 +244,6 @@ button {
     linear-gradient(180deg, #f2f5fb, #e9eef7 40%, #e4eaf4);
 }
 
-.editor-topbar {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 18px;
-  min-height: 76px;
-  padding: 14px 22px;
-  border-bottom: 1px solid rgba(216, 223, 235, 0.9);
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(18px);
-  -webkit-app-region: drag;
-}
-
-.editor-topbar button,
-.editor-topbar .export-dropdown {
-  -webkit-app-region: no-drag;
-}
-
-.editor-shell-mac .editor-topbar {
-  padding-left: 108px;
-}
 
 .toolbar-left,
 .toolbar-center,
@@ -320,12 +299,6 @@ button {
   background: #fff;
   color: var(--text);
   box-shadow: 0 10px 22px rgba(31, 53, 94, 0.08);
-}
-
-.editor-body {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  min-height: 0;
 }
 
 .slide-rail {
@@ -1546,4 +1519,41 @@ button {
 .flex-column {
   display: flex;
   flex-direction: column;
+}
+
+/* Mac: extra top padding to clear traffic lights in sidebar */
+.app-sidebar-mac .sidebar-brand {
+  padding-top: 44px;
+}
+
+/* ensure export dropdown overlays chat panel */
+.export-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 160px;
+  border: 1px solid rgba(216, 223, 235, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-soft);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.export-menu-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.export-menu-item:hover {
+  background: var(--surface-muted);
 }

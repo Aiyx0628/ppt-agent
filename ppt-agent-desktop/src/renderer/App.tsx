@@ -604,6 +604,7 @@ export function App() {
         <Sidebar
           projects={workspace.projects}
           selectedProjectId={workspace.selectedProjectId}
+          isMac={isMac}
           onSelectProject={(id) => {
             void loadProjectArtifacts(id).then(() => setPageView("editor"));
           }}
@@ -730,7 +731,7 @@ export function App() {
   }
 
   return (
-    <div className={`editor-shell app-shell flex-column ${isMac ? "editor-shell-mac" : ""}`}>
+    <div className={`editor-shell flex-column ${isMac ? "editor-shell-mac" : ""}`}>
       {/* Top navigation bar */}
       <header className="editor-topbar-redesign">
         <div className="toolbar-left">
@@ -1335,11 +1336,13 @@ function Sidebar({
   selectedProjectId,
   onSelectProject,
   onNewProject,
+  isMac,
 }: {
   projects: Project[];
   selectedProjectId: string | null;
   onSelectProject: (id: string) => void;
   onNewProject: () => void;
+  isMac?: boolean;
 }) {
   const stageBadge = (p: Project) => {
     if (p.status === "draft") return null;
@@ -1347,7 +1350,7 @@ function Sidebar({
   };
 
   return (
-    <aside className="app-sidebar">
+    <aside className={`app-sidebar${isMac ? " app-sidebar-mac" : ""}`}>
       <div className="sidebar-brand">ppt-agent</div>
 
       <button className="sidebar-new-btn" onClick={onNewProject} type="button">
